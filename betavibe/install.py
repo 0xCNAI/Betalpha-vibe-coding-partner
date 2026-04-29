@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import shutil
 
 START = "<!-- BETAVIBE_AGENT_CONTRACT_START -->"
 END = "<!-- BETAVIBE_AGENT_CONTRACT_END -->"
@@ -32,7 +33,7 @@ After a painful debugging session, run:
 {prefix}python3 -m betavibe should-capture --debug-minutes <minutes> --attempts <wrong_attempts> --had-error-log --final-fix-verified --context "<bug summary>"
 ```
 
-If it returns `CAPTURE_RECOMMENDED`, ask the human for conversational approval, prefill inferred fields, ask only missing judgment fields, then save with:
+If it returns `CAPTURE_RECOMMENDED`, use the Betavibe insight skill/workflow: ask human approval, prefill inferred fields, ask only missing judgment fields, then save with:
 
 ```bash
 {prefix}python3 -m betavibe capture ... --sync-gbrain
@@ -64,7 +65,7 @@ def upsert_block(path: Path, block: str) -> bool:
     return changed
 
 
-def install(project: Path, pack_path: str = "Betalpha-vibe-coding-partner") -> list[Path]:
+def install_contract(project: Path, pack_path: str = "Betalpha-vibe-coding-partner") -> list[Path]:
     block = contract_block(pack_path)
     targets = [
         project / "AGENTS.md",
@@ -77,3 +78,73 @@ def install(project: Path, pack_path: str = "Betalpha-vibe-coding-partner") -> l
         if upsert_block(target, block):
             changed.append(target)
     return changed
+
+
+# Backward-compatible name used by older CLI/tests.
+def install(project: Path, pack_path: str = "Betalpha-vibe-coding-partner") -> list[Path]:
+    return install_contract(project, pack_path)
+
+
+def package_root() -> Path:
+    return Path(__file__).resolve().parents[1]
+
+
+def install_skill(project: Path) -> list[Path]:
+    src = package_root() / "skills" / "betavibe-insight" / "SKILL.md"
+    if not src.exists():
+        raise FileNotFoundError(f"missing bundled skill: {src}")
+    targets = [
+        project / "skills" / "betavibe-insight" / "SKILL.md",
+        project / ".claude" / "skills" / "betavibe-insight" / "SKILL.md",
+    ]
+    changed: list[Path] = []
+    for target in targets:
+        existing = target.read_text(encoding="utf-8") if target.exists() else None
+        text = src.read_text(encoding="utf-8")
+        if existing != text:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(text, encoding="utf-8")
+            changed.append(target)
+    return changed
+
+
+def install_hooks(project: Path, pack_path: str = "Betalpha-vibe-coding-partner") -> list[Path]:
+    hooks_dir = project / ".betavibe" / "hooks"
+    hooks_dir.mkdir(parents=True, exist_ok=True)
+    scripts = {
+        "pre_spec.sh": f"""#!/usr/bin/env bash
+set -euo pipefail
+cd \"$(dirname \"$0\")/../..\"
+cd {pack_path!r}
+python3 -m betavibe resolve pre_spec --context \"${{*:-}}\"
+""",
+        "pre_implement.sh": f"""#!/usr/bin/env bash
+set -euo pipefail
+cd \"$(dirname \"$0\")/../..\"
+cd {pack_path!r}
+python3 -m betavibe resolve pre_implement --context \"${{*:-}}\"
+""",
+        "should_capture.sh": f"""#!/usr/bin/env bash
+set -euo pipefail
+cd \"$(dirname \"$0\")/../..\"
+cd {pack_path!r}
+python3 -m betavibe should-capture "$@"
+""",
+    }
+    changed: list[Path] = []
+    for name, text in scripts.items():
+        path = hooks_dir / name
+        old = path.read_text(encoding="utf-8") if path.exists() else None
+        if old != text:
+            path.write_text(text, encoding="utf-8")
+            path.chmod(0o755)
+            changed.append(path)
+    return changed
+
+
+def install_all(project: Path, pack_path: str = "Betalpha-vibe-coding-partner") -> dict[str, list[Path]]:
+    return {
+        "contract": install_contract(project, pack_path),
+        "skill": install_skill(project),
+        "hooks": install_hooks(project, pack_path),
+    }

@@ -17,20 +17,26 @@ A good agent will:
 
 ## Install into a project
 
-Copy this whole folder into your project, or keep it as a shared submodule / folder.
+Copy this whole folder into your project, or keep it as a shared submodule / folder, then run the full installer from inside the Betavibe pack:
+
+```bash
+python3 -m betavibe install --project /path/to/project --pack-path Betalpha-vibe-coding-partner --self-test
+```
+
+The installer adds a managed root contract, agent skills, local hook wrappers, and initializes the registry. It writes managed blocks instead of overwriting existing instructions.
 
 Recommended shared registry:
 
 ```bash
 export BETAVIBE_REGISTRY="$HOME/.betalpha-vibe/registry"
-python3 -m betavibe init --registry "$BETAVIBE_REGISTRY"
+python3 -m betavibe install --project /path/to/project --pack-path Betalpha-vibe-coding-partner --registry "$BETAVIBE_REGISTRY" --self-test
 ```
 
 If no shared registry is configured, it uses local `registry/`.
 
 ## Agent-facing contract
 
-Agents should read `AGENTS.md` and use resolver commands automatically:
+Agents should read the root managed contract and/or the installed `betavibe-insight` skill, then use resolver commands automatically:
 
 ```bash
 python3 -m betavibe resolve pre_spec --context "<task>"
@@ -105,6 +111,8 @@ Read `docs/USEFULNESS_TESTING.md`. The short version: test against old painful b
 - `COWORK.md` — Cowork-readable guidance.
 - `docs/RESOLVERS.md` — lifecycle resolver behavior.
 - `docs/USEFULNESS_TESTING.md` — A/B tests for real usefulness.
+- `skills/betavibe-insight/SKILL.md` — bundled agent skill for correct capture workflow.
+- `.betavibe/hooks/` after install — deterministic wrappers agents/hooks can call.
 - `betavibe/` — resolver CLI.
 - `registry/insights/` — reviewed insight database.
 - `registry/pending/` — auto-mined candidates awaiting review.

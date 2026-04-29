@@ -32,5 +32,24 @@ class InstallContractTest(unittest.TestCase):
             second = (project / "AGENTS.md").read_text()
             self.assertEqual(first, second)
 
+    def test_full_install_adds_contract_skill_hooks_and_selftest_passes(self):
+        with tempfile.TemporaryDirectory() as td:
+            project = Path(td) / "client-project"
+            project.mkdir()
+            out = self.run_cli("--registry", str(project / "registry"), "install", "--project", str(project), "--pack-path", "tools/betavibe", "--self-test").stdout
+            self.assertIn("Betavibe install self-test passed", out)
+            for rel in [
+                "AGENTS.md",
+                "CLAUDE.md",
+                ".codex/AGENTS.md",
+                ".claude/CLAUDE.md",
+                "skills/betavibe-insight/SKILL.md",
+                ".claude/skills/betavibe-insight/SKILL.md",
+                ".betavibe/hooks/pre_spec.sh",
+                ".betavibe/hooks/pre_implement.sh",
+                ".betavibe/hooks/should_capture.sh",
+            ]:
+                self.assertTrue((project / rel).exists(), rel)
+
 if __name__ == "__main__":
     unittest.main()

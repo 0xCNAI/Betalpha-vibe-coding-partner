@@ -9,7 +9,7 @@ from .models import Insight
 from .registry import init_registry, list_insights, list_pending, resolve_registry, write_insight, write_pending
 from .search import search_insights
 from . import gbrain_adapter
-from .install import install as install_agent_contract
+from .install import install_contract as install_agent_contract, install_all
 
 
 def csv(value: str | None) -> list[str]:
@@ -270,6 +270,70 @@ def cmd_install_agent_contract(args) -> int:
     print("Now agents that read root AGENTS/CLAUDE/Codex instructions will automatically run resolvers.")
     return 0
 
+
+def cmd_install(args) -> int:
+    project = Path(args.project).expanduser().resolve()
+    registry = resolve_registry(args.registry)
+    init_registry(registry)
+    result = install_all(project, pack_path=args.pack_path)
+    print(f"initialized registry: {registry}")
+    for section, paths in result.items():
+        if paths:
+            print(f"installed/updated {section}:")
+            for path in paths:
+                print(f"- {path}")
+        else:
+            print(f"{section}: already up to date")
+    if args.self_test:
+        print("")
+        class Obj: pass
+        t = Obj(); t.project = str(project); t.pack_path = args.pack_path
+        return cmd_self_test(t)
+    print("Run `python3 -m betavibe self-test --project <project>` to verify installation behavior.")
+    return 0
+
+
+def cmd_self_test(args) -> int:
+    project = Path(args.project).expanduser().resolve() if args.project else Path.cwd()
+    checks = []
+    required = [
+        project / "AGENTS.md",
+        project / "CLAUDE.md",
+        project / ".codex" / "AGENTS.md",
+        project / ".claude" / "CLAUDE.md",
+        project / "skills" / "betavibe-insight" / "SKILL.md",
+        project / ".claude" / "skills" / "betavibe-insight" / "SKILL.md",
+        project / ".betavibe" / "hooks" / "pre_spec.sh",
+        project / ".betavibe" / "hooks" / "pre_implement.sh",
+        project / ".betavibe" / "hooks" / "should_capture.sh",
+    ]
+    for path in required:
+        ok = path.exists()
+        checks.append(ok)
+        print(("OK" if ok else "MISSING") + f" {path}")
+
+    # Behavioral smoke checks for capture gate.
+    import subprocess, sys
+    scenarios = [
+        ([sys.executable, "-m", "betavibe", "should-capture", "--debug-minutes", "45", "--attempts", "2", "--had-error-log", "--final-fix-verified", "--context", "webhook token refresh callbacks stopped"], "CAPTURE_RECOMMENDED"),
+        ([sys.executable, "-m", "betavibe", "should-capture", "--debug-minutes", "2", "--attempts", "0", "--context", "README typo"], "DO_NOT_CAPTURE_YET"),
+        ([sys.executable, "-m", "betavibe", "should-capture", "--debug-minutes", "40", "--attempts", "2", "--had-error-log", "--context", "database migration schema error"], "CAPTURE_AFTER_VERIFICATION"),
+    ]
+    for cmd, expected in scenarios:
+        proc = subprocess.run(cmd, cwd=Path(__file__).resolve().parents[1], text=True, capture_output=True)
+        ok = proc.returncode == 0 and expected in proc.stdout
+        checks.append(ok)
+        print(("OK" if ok else "FAIL") + f" behavior {expected}")
+        if not ok:
+            print(proc.stdout)
+            print(proc.stderr)
+
+    if all(checks):
+        print("Betavibe install self-test passed.")
+        return 0
+    print("Betavibe install self-test failed.")
+    return 1
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="betavibe", description="Betalpha Vibe Coding Partner CLI")
     parser.add_argument("--registry", help="Registry path; defaults to BETAVIBE_REGISTRY or ./registry")
@@ -353,6 +417,16 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--project", required=True, help="Project root that should get AGENTS/CLAUDE/Codex resolver instructions")
     p.add_argument("--pack-path", default="Betalpha-vibe-coding-partner", help="Path from project root to this Betavibe pack")
     p.set_defaults(func=cmd_install_agent_contract)
+
+    p = sub.add_parser("install")
+    p.add_argument("--project", required=True, help="Project root to install root contract, skills, hooks, and registry into")
+    p.add_argument("--pack-path", default="Betalpha-vibe-coding-partner", help="Path from project root to this Betavibe pack")
+    p.add_argument("--self-test", action="store_true", help="Run install self-test after installation")
+    p.set_defaults(func=cmd_install)
+
+    p = sub.add_parser("self-test")
+    p.add_argument("--project", help="Project root to verify; defaults to current directory")
+    p.set_defaults(func=cmd_self_test)
     return parser
 
 
