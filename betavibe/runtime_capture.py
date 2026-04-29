@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+import hashlib
 import json
 import os
 import shlex
@@ -23,6 +24,25 @@ def now() -> str:
 
 def runs_root(registry: Path) -> Path:
     return registry / "runs"
+
+
+def state_path(registry: Path) -> Path:
+    return registry / "runtime_state.json"
+
+
+def load_state(registry: Path) -> dict:
+    path = state_path(registry)
+    if not path.exists():
+        return {"active_tasks": {}, "latest_run": None}
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {"active_tasks": {}, "latest_run": None}
+
+
+def save_state(registry: Path, state: dict) -> None:
+    registry.mkdir(parents=True, exist_ok=True)
+    state_path(registry).write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def run_paths(registry: Path, run_id: str) -> RunPaths:
@@ -58,6 +78,10 @@ def start_run(registry: Path, task: str, harness: str | None = None, repo: Path 
     }
     paths.summary.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
     append_event(registry, run_id, {"kind": "start", "task": task, "harness": summary["harness"], "repo": summary["repo"]})
+    state = load_state(registry)
+    state.setdefault("active_tasks", {})[task] = run_id
+    state["latest_run"] = run_id
+    save_state(registry, state)
     return run_id
 
 
@@ -166,4 +190,65 @@ def finish_run(registry: Path, run_id: str, repo: Path | None = None) -> dict:
     append_event(registry, run_id, {"kind": "finish", "draft": draft})
     summary.update({"status": "finished", "finished_at": now(), "draft": draft})
     summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
+    state = load_state(registry)
+    state["latest_run"] = run_id
+    save_state(registry, state)
     return draft
+
+
+def latest_run_id(registry: Path) -> str | None:
+    state = load_state(registry)
+    if state.get("latest_run"):
+        return state["latest_run"]
+    runs = runs_root(registry)
+    if not runs.exists():
+        return None
+    candidates = [p for p in runs.iterdir() if p.is_dir() and (p / "summary.json").exists()]
+    if not candidates:
+        return None
+    candidates.sort(key=lambda p: (p / "summary.json").stat().st_mtime, reverse=True)
+    return candidates[0].name
+
+
+def verify_command(registry: Path, task: str, command: list[str], cwd: Path, harness: str | None = None, repo: Path | None = None, no_fail: bool = False, run_id: str | None = None) -> tuple[int, str, dict]:
+    state = load_state(registry)
+    if not run_id:
+        run_id = state.get("active_tasks", {}).get(task)
+    if not run_id or not run_paths(registry, run_id).summary.exists():
+        run_id = start_run(registry, task, harness=harness, repo=repo)
+    code = run_command(registry, run_id, command, cwd=cwd)
+    draft = finish_run(registry, run_id, repo=repo)
+    return (0 if no_fail else code), run_id, draft
+
+
+def learn_from_run(registry: Path, run_id: str | None = None) -> tuple[str, Path | None]:
+    from .registry import write_pending
+
+    run_id = run_id or latest_run_id(registry)
+    if not run_id:
+        return "No Betavibe runtime run found.", None
+    summary_path = run_paths(registry, run_id).summary
+    if not summary_path.exists():
+        return f"Runtime run not found: {run_id}", None
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    draft = summary.get("draft") or infer_draft(read_events(registry, run_id), summary.get("task", ""), repo=Path(summary["repo"]) if summary.get("repo") else None, start_head=summary.get("start_head"))
+    commands = draft.get("evidence", {}).get("commands", [])
+    has_failed = any(not c.get("ok") for c in commands)
+    changed = draft.get("evidence", {}).get("changed_files", [])
+    if draft.get("confidence") != "high" or not has_failed:
+        return f"Run {run_id} is not strong enough to learn automatically (confidence={draft.get('confidence')}, failed_evidence={'yes' if has_failed else 'no'}). Keep it as runtime evidence; promote only if the human says it was a reusable lesson.", None
+    key = hashlib.sha1((run_id + draft.get("title", "")).encode("utf-8")).hexdigest()[:10]
+    candidate = {
+        "id": f"runtime-{key}",
+        "title": draft.get("title") or summary.get("task") or "Runtime captured lesson",
+        "type": draft.get("type", "pitfall"),
+        "score": 8 + min(2, len(changed)),
+        "summary": draft.get("summary", ""),
+        "tags": draft.get("tags", ["runtime-capture"]),
+        "tech_stack": draft.get("tech_stack", []),
+        "reasons": ["failed command evidence", "passing verification", "runtime capture"],
+        "source": {"kind": "runtime", "run_id": run_id, "changed_files": changed},
+        "draft": draft,
+    }
+    path = write_pending(candidate, registry)
+    return f"Created pending reusable lesson from runtime run {run_id}: {path}", path

@@ -247,5 +247,38 @@ class CliTest(unittest.TestCase):
             self.assertIn("GBrain is the optional semantic recall layer", text)
             self.assertIn("Agents must not silently assume GBrain is available", text)
 
+    def test_verify_reuses_task_run_and_learn_creates_pending_for_high_confidence(self):
+        with tempfile.TemporaryDirectory() as td:
+            repo = Path(td) / "repo"
+            reg = Path(td) / "registry"
+            repo.mkdir()
+            subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True)
+            subprocess.run(["git", "config", "user.email", "t@example.com"], cwd=repo, check=True)
+            subprocess.run(["git", "config", "user.name", "t"], cwd=repo, check=True)
+            (repo / "calc.py").write_text("def add(a,b): return a-b\n")
+            subprocess.run(["git", "add", "."], cwd=repo, check=True)
+            subprocess.run(["git", "commit", "-m", "init broken calc"], cwd=repo, check=True, capture_output=True)
+            fail = self.run_cli("--registry", str(reg), "verify", "--task", "fix calc bug", "--repo", str(repo), "--cwd", str(repo), "--no-fail", "--", sys.executable, "-c", "import sys; sys.exit(3)")
+            self.assertIn("Betavibe verify captured run", fail.stdout)
+            run_id = [line for line in fail.stdout.splitlines() if "Betavibe verify captured run" in line][0].split(": ", 1)[1]
+            (repo / "calc.py").write_text("def add(a,b): return a+b\n")
+            ok = self.run_cli("--registry", str(reg), "verify", "--task", "fix calc bug", "--repo", str(repo), "--cwd", str(repo), "--", sys.executable, "-c", "print('ok')")
+            self.assertIn(run_id, ok.stdout)
+            summary = json.loads((reg / "runs" / run_id / "summary.json").read_text())
+            self.assertEqual(summary["draft"]["confidence"], "high")
+            self.assertIn("calc.py", summary["draft"]["evidence"]["changed_files"])
+            learned = self.run_cli("--registry", str(reg), "learn").stdout
+            self.assertIn("Created pending reusable lesson", learned)
+            pending = json.loads(self.run_cli("--registry", str(reg), "pending", "--json").stdout)
+            self.assertTrue(pending)
+            self.assertEqual(pending[0]["source"]["run_id"], run_id)
+
+    def test_learn_noops_for_pass_only_run(self):
+        with tempfile.TemporaryDirectory() as td:
+            reg = Path(td) / "registry"
+            self.run_cli("--registry", str(reg), "verify", "--task", "add feature", "--cwd", str(ROOT), "--", sys.executable, "-c", "print('ok')")
+            out = self.run_cli("--registry", str(reg), "learn", "--allow-noop").stdout
+            self.assertIn("not strong enough", out)
+
 if __name__ == "__main__":
     unittest.main()

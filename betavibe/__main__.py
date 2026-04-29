@@ -13,7 +13,7 @@ from .search import search_insights
 from . import gbrain_adapter
 from .install import install_contract as install_agent_contract, install_all
 from .sync import commit_registry
-from .runtime_capture import start_run, run_command, finish_run
+from .runtime_capture import start_run, run_command, finish_run, verify_command, learn_from_run
 from .enforce import check_runtime_required
 
 
@@ -381,6 +381,39 @@ def cmd_promote(args) -> int:
 
 
 
+def cmd_recall(args) -> int:
+    class Obj: pass
+    o = Obj()
+    o.phase = "pre_implement"
+    o.context = args.context
+    o.limit = args.limit
+    o.gbrain_limit = args.gbrain_limit
+    o.no_gbrain = args.no_gbrain
+    return cmd_resolve(o)
+
+
+def cmd_verify(args) -> int:
+    registry = resolve_registry(args.registry)
+    cwd = Path(args.cwd).expanduser().resolve() if args.cwd else Path.cwd()
+    repo = Path(args.repo).expanduser().resolve() if args.repo else (cwd if (cwd / ".git").exists() else None)
+    command = args.command[1:] if args.command and args.command[0] == "--" else args.command
+    if not command:
+        raise SystemExit("verify requires a command after --")
+    code, run_id, draft = verify_command(registry, args.task, command, cwd=cwd, harness=args.harness, repo=repo, no_fail=args.no_fail, run_id=args.run_id)
+    print(f"\nBetavibe verify captured run: {run_id}")
+    print(f"confidence: {draft.get('confidence')}")
+    print(f"failed evidence: {'yes' if any(not c.get('ok') for c in draft.get('evidence', {}).get('commands', [])) else 'no'}")
+    print(f"changed_files: {len(draft.get('evidence', {}).get('changed_files', []))}")
+    return code
+
+
+def cmd_learn(args) -> int:
+    registry = resolve_registry(args.registry)
+    message, path = learn_from_run(registry, run_id=args.run_id)
+    print(message)
+    return 0 if (path or args.allow_noop) else 1
+
+
 def cmd_resolve(args) -> int:
     registry = resolve_registry(args.registry)
     insights = list_insights(registry)
@@ -646,6 +679,28 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--commit-message", default=None, help="Commit message text for --mode auto")
     p.add_argument("--commit-message-file", default=None, help="Commit message file path for git commit-msg hook")
     p.set_defaults(func=cmd_enforce)
+
+    p = sub.add_parser("recall")
+    p.add_argument("context", help="Task/context to recall prior project lessons for")
+    p.add_argument("--limit", type=int, default=5)
+    p.add_argument("--gbrain-limit", type=int, default=3)
+    p.add_argument("--no-gbrain", action="store_true")
+    p.set_defaults(func=cmd_recall)
+
+    p = sub.add_parser("verify")
+    p.add_argument("--task", required=True, help="Task this verification belongs to; repeated calls with the same task append to one run")
+    p.add_argument("--harness", default=None, help="openclaw, claude-code, codex, cursor, etc.")
+    p.add_argument("--repo", help="Git repo being edited; defaults to cwd if cwd is a git repo")
+    p.add_argument("--cwd", help="Working directory; defaults to current directory")
+    p.add_argument("--run-id", default=None, help="Append to an explicit runtime run")
+    p.add_argument("--no-fail", action="store_true", help="Return 0 even if the captured command failed")
+    p.add_argument("command", nargs="+", help="Command to execute and capture; put after -- when command has flags")
+    p.set_defaults(func=cmd_verify)
+
+    p = sub.add_parser("learn")
+    p.add_argument("--run-id", default=None, help="Runtime run to turn into a pending lesson; defaults to latest run")
+    p.add_argument("--allow-noop", action="store_true", help="Return success even when the latest run is not strong enough to learn from")
+    p.set_defaults(func=cmd_learn)
 
     p = sub.add_parser("run-start")
     p.add_argument("--task", required=True)

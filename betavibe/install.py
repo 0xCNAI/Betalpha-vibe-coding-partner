@@ -31,12 +31,10 @@ Before non-trivial implementation, run:
 During implementation, use Betavibe as a lightweight evidence wrapper for meaningful verification commands. Do not record every shell command. Record tests/build/lint/typecheck/deploy/emulator/smoke checks that prove or disprove the change:
 
 ```bash
-RUN_ID=$({prefix}python3 -m betavibe run-start --task "<task>" --harness "<harness>" --repo ..)
-{prefix}python3 -m betavibe run-exec "$RUN_ID" --cwd .. -- <test-build-lint-or-smoke-command>
-{prefix}python3 -m betavibe run-finish "$RUN_ID" --repo ..
+{prefix}python3 -m betavibe verify --task "<task>" --cwd .. -- <test-build-lint-or-smoke-command>
 ```
 
-If you hit a bug/regression, preserve the failing command evidence before fixing when feasible, then append the passing verification to the same run. Do not intentionally break working code just to satisfy evidence unless the commit gate explicitly asks and no original failure was captured.
+Repeated `verify --task "<same task>"` calls append to the same runtime run, so a bugfix can naturally contain both the failing command and the later passing verification. If you hit a bug/regression, preserve the failing command evidence before fixing when feasible. Do not intentionally break working code just to satisfy evidence unless the commit gate explicitly asks and no original failure was captured.
 
 After a painful debugging session, run:
 
@@ -44,11 +42,13 @@ After a painful debugging session, run:
 {prefix}python3 -m betavibe should-capture --debug-minutes <minutes> --attempts <wrong_attempts> --had-error-log --final-fix-verified --context "<bug summary>"
 ```
 
-If it returns `CAPTURE_RECOMMENDED`, use the Betavibe insight skill/workflow: ask human approval, prefill inferred fields, ask only missing judgment fields, then save with:
+If it returns `CAPTURE_RECOMMENDED`, first try:
 
 ```bash
-{prefix}python3 -m betavibe capture ... --sync-gbrain
+{prefix}python3 -m betavibe learn
 ```
+
+If `learn` creates a pending reusable lesson, ask human approval before promotion. If it says the run is not strong enough, use the Betavibe insight skill/workflow: ask human approval, prefill inferred fields, ask only missing judgment fields, then save with `capture ... --sync-gbrain`.
 
 Memory layers:
 - Local registry files are the source of truth across OpenClaw, Claude Code, Codex, Cursor, and other harnesses.
