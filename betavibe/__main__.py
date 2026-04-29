@@ -375,8 +375,16 @@ def cmd_promote(args) -> int:
         },
     )
     path = write_insight(insight, registry)
+    synced = None
+    if args.sync_gbrain:
+        synced = gbrain_adapter.sync_insight(insight)
     Path(p["_path"]).unlink(missing_ok=True)
     print(f"promoted pending candidate to: {path}")
+    if args.sync_gbrain:
+        if synced:
+            print(f"synced to GBrain: {synced}")
+        else:
+            print("GBrain sync requested but failed or unavailable; reviewed insight remains in local registry.")
     print("Review the file and refine root_cause/fix if git log alone was insufficient.")
     return 0
 
@@ -861,6 +869,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--fix")
     p.add_argument("--prevention-signal")
     p.add_argument("--verify-trigger")
+    p.add_argument("--sync-gbrain", action="store_true", help="Also sync promoted reviewed insight to GBrain when available")
     p.set_defaults(func=cmd_promote)
 
     p = sub.add_parser("resolve")

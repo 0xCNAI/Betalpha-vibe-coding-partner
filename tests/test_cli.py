@@ -438,5 +438,37 @@ class CliTest(unittest.TestCase):
             self.assertTrue((repo / "CLAUDE.md").exists())
             self.assertTrue((repo / ".codex" / "AGENTS.md").exists())
 
+    def test_promote_sync_gbrain_gracefully_falls_back_when_unavailable(self):
+        with tempfile.TemporaryDirectory() as td:
+            reg = Path(td) / "registry"
+            self.run_cli("--registry", str(reg), "init")
+            candidate = {
+                "id": "manual-1",
+                "title": "OAuth refresh silently kills webhook",
+                "type": "pitfall",
+                "score": 9,
+                "summary": "OAuth refresh token rotation can silently break webhook delivery unless callback health is revalidated.",
+                "tags": ["oauth", "webhook"],
+                "tech_stack": ["node"],
+                "reasons": ["manual test"],
+                "source": {"kind": "test"},
+                "draft": {
+                    "symptom": "Webhook stopped receiving events after token refresh.",
+                    "root_cause": "Refresh flow updated credentials without revalidating webhook delivery.",
+                    "wrong_paths": "Only checking token refresh success.",
+                    "fix": "Run webhook self-test after token refresh.",
+                    "prevention_signal": "Before changing OAuth refresh logic, run webhook delivery self-test.",
+                    "verify_trigger": "When OAuth refresh, webhook auth, or callback URLs change.",
+                    "evidence": "test evidence",
+                },
+            }
+            pending = reg / "pending"
+            pending.mkdir(parents=True, exist_ok=True)
+            (pending / "manual-1.json").write_text(json.dumps(candidate), encoding="utf-8")
+            proc = self.run_cli("--registry", str(reg), "promote", "manual-1", "--sync-gbrain")
+            self.assertIn("promoted pending candidate", proc.stdout)
+            self.assertTrue(list((reg / "insights").rglob("INSIGHT.md")))
+            self.assertFalse((pending / "manual-1.json").exists())
+
 if __name__ == "__main__":
     unittest.main()
