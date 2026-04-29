@@ -13,6 +13,7 @@ from .search import search_insights
 from . import gbrain_adapter
 from .install import install_contract as install_agent_contract, install_all
 from .sync import commit_registry
+from .runtime_capture import start_run, run_command, finish_run
 
 
 def csv(value: str | None) -> list[str]:
@@ -274,6 +275,43 @@ def cmd_sync(args) -> int:
     if result.pushed:
         print("pushed: yes")
     return 0 if result.ok else 1
+
+
+def cmd_run_start(args) -> int:
+    registry = resolve_registry(args.registry)
+    init_registry(registry)
+    repo = Path(args.repo).expanduser().resolve() if args.repo else None
+    run_id = start_run(registry, args.task, harness=args.harness, repo=repo)
+    print(run_id)
+    return 0
+
+
+def cmd_run_exec(args) -> int:
+    registry = resolve_registry(args.registry)
+    cwd = Path(args.cwd).expanduser().resolve() if args.cwd else Path.cwd()
+    command = args.command[1:] if args.command and args.command[0] == "--" else args.command
+    if not command:
+        raise SystemExit("run-exec requires a command after --")
+    code = run_command(registry, args.run_id, command, cwd=cwd)
+    if args.no_fail:
+        return 0
+    return code
+
+
+def cmd_run_finish(args) -> int:
+    registry = resolve_registry(args.registry)
+    repo = Path(args.repo).expanduser().resolve() if args.repo else None
+    draft = finish_run(registry, args.run_id, repo=repo)
+    if args.json:
+        print(json.dumps(draft, ensure_ascii=False, indent=2))
+    else:
+        print(f"runtime draft: {draft['title']}")
+        print(f"confidence: {draft['confidence']}")
+        print(f"type: {draft['type']}")
+        print(f"symptom: {draft['symptom']}")
+        print(f"fix: {draft['fix']}")
+        print(f"prevention_signal: {draft['prevention_signal']}")
+    return 0
 
 
 def cmd_pending(args) -> int:
@@ -583,6 +621,25 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--message", default="chore(betavibe): sync reviewed insights", help="Commit message")
     p.add_argument("--push", action="store_true", help="Push after committing")
     p.set_defaults(func=cmd_sync)
+
+    p = sub.add_parser("run-start")
+    p.add_argument("--task", required=True)
+    p.add_argument("--harness", default=None, help="openclaw, claude-code, codex, cursor, etc.")
+    p.add_argument("--repo", help="Git repo being edited")
+    p.set_defaults(func=cmd_run_start)
+
+    p = sub.add_parser("run-exec")
+    p.add_argument("run_id")
+    p.add_argument("--cwd", help="Working directory; defaults to current directory")
+    p.add_argument("--no-fail", action="store_true", help="Return 0 even if the captured command failed")
+    p.add_argument("command", nargs="+", help="Command to execute and capture; put after -- when command has flags")
+    p.set_defaults(func=cmd_run_exec)
+
+    p = sub.add_parser("run-finish")
+    p.add_argument("run_id")
+    p.add_argument("--repo", help="Git repo being edited")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_run_finish)
 
     p = sub.add_parser("pending")
     p.add_argument("--limit", type=int, default=20)

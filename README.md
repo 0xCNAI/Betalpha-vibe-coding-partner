@@ -109,6 +109,17 @@ After promoting reviewed insights, sync them across devices/harnesses by committ
 python3 -m betavibe sync --repo /path/to/project --push
 ```
 
+Runtime capture records implementation evidence while work happens:
+
+```bash
+RUN_ID=$(python3 -m betavibe run-start --task "fix auth bootstrap" --harness openclaw --repo /path/to/project)
+python3 -m betavibe run-exec "$RUN_ID" --cwd /path/to/project -- npm test -- --runInBand
+python3 -m betavibe run-exec "$RUN_ID" --cwd /path/to/project -- npm run build
+python3 -m betavibe run-finish "$RUN_ID" --repo /path/to/project --json
+```
+
+A high-confidence runtime draft needs failed command evidence plus a later passing verification. Human review should be reduced to approve / edit one sentence / discard.
+
 ## Insight types
 
 - `pitfall`: hard-won bug / failure mode and verified fix.

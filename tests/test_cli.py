@@ -141,5 +141,22 @@ class CliTest(unittest.TestCase):
             log = subprocess.run(["git", "log", "--oneline", "-1"], cwd=repo, text=True, capture_output=True, check=True).stdout
             self.assertIn("sync reviewed insights", log)
 
+    def test_runtime_capture_records_failed_then_passing_command(self):
+        with tempfile.TemporaryDirectory() as td:
+            repo = Path(td) / "repo"
+            reg = repo / ".betavibe" / "registry"
+            repo.mkdir()
+            subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True)
+            subprocess.run(["git", "config", "user.email", "t@example.com"], cwd=repo, check=True)
+            subprocess.run(["git", "config", "user.name", "t"], cwd=repo, check=True)
+            run_id = self.run_cli("--registry", str(reg), "run-start", "--task", "fix runtime capture command evidence", "--harness", "openclaw", "--repo", str(repo)).stdout.strip()
+            self.run_cli("--registry", str(reg), "run-exec", run_id, "--cwd", str(repo), "--no-fail", "--", sys.executable, "-c", "import sys; print('boom'); sys.exit(2)")
+            self.run_cli("--registry", str(reg), "run-exec", run_id, "--cwd", str(repo), "--", sys.executable, "-c", "print('ok')")
+            draft = json.loads(self.run_cli("--registry", str(reg), "run-finish", run_id, "--repo", str(repo), "--json").stdout)
+            self.assertEqual(draft["confidence"], "high")
+            self.assertIn("Command failed", draft["symptom"])
+            self.assertIn("Final captured verification passed", draft["fix"])
+            self.assertEqual(len(draft["evidence"]["commands"]), 2)
+
 if __name__ == "__main__":
     unittest.main()
