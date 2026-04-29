@@ -251,4 +251,7 @@ def learn_from_run(registry: Path, run_id: str | None = None) -> tuple[str, Path
         "draft": draft,
     }
     path = write_pending(candidate, registry)
-    return f"Created pending reusable lesson from runtime run {run_id}: {path}", path
+    return (
+        f"Created pending reusable lesson from runtime run {run_id}: {path}\n"
+        "Next: ask the human to review this pending lesson. Options: promote --sync-gbrain, edit then promote, or discard. Never promote without human approval."
+    ), path

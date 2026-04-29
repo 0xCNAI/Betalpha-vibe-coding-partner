@@ -346,6 +346,8 @@ def cmd_pending(args) -> int:
         print(p.get("summary", ""))
         print("reasons: " + "; ".join(p.get("reasons", [])))
         print(f"source: {p.get('source', {}).get('kind')} {p.get('source', {}).get('sha', '')[:12]}")
+        print("approval options: promote --sync-gbrain / edit then promote / discard")
+        print("human approval required before reviewed registry or GBrain sync")
         print("")
     return 0
 
