@@ -14,6 +14,7 @@ from . import gbrain_adapter
 from .install import install_contract as install_agent_contract, install_all
 from .sync import commit_registry
 from .runtime_capture import start_run, run_command, finish_run
+from .enforce import check_runtime_required
 
 
 def csv(value: str | None) -> list[str]:
@@ -261,6 +262,13 @@ def cmd_doctor(args) -> int:
     return 0 if (not args.require_gbrain or g.healthy) else 1
 
 
+def cmd_enforce(args) -> int:
+    registry = resolve_registry(args.registry)
+    ok, message = check_runtime_required(registry, max_age_minutes=args.max_age_minutes, require_failed=bool(args.require_failed))
+    print(message)
+    return 0 if ok else 1
+
+
 def cmd_sync(args) -> int:
     registry = resolve_registry(args.registry)
     repo = Path(args.repo).expanduser().resolve()
@@ -490,7 +498,7 @@ def cmd_install(args) -> int:
     project = Path(args.project).expanduser().resolve()
     registry = resolve_registry(args.registry)
     init_registry(registry)
-    result = install_all(project, pack_path=args.pack_path)
+    result = install_all(project, pack_path=args.pack_path, enforce_runtime=args.enforce_runtime, require_failed=args.require_failed)
     print(f"initialized registry: {registry}")
     for section, paths in result.items():
         if paths:
@@ -622,6 +630,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--push", action="store_true", help="Push after committing")
     p.set_defaults(func=cmd_sync)
 
+    p = sub.add_parser("enforce")
+    p.add_argument("--max-age-minutes", type=int, default=240)
+    p.add_argument("--require-failed", type=int, default=0, help="Require at least one failed command in recent runtime evidence")
+    p.set_defaults(func=cmd_enforce)
+
     p = sub.add_parser("run-start")
     p.add_argument("--task", required=True)
     p.add_argument("--harness", default=None, help="openclaw, claude-code, codex, cursor, etc.")
@@ -687,6 +700,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--project", required=True, help="Project root to install root contract, skills, hooks, and registry into")
     p.add_argument("--pack-path", default="Betalpha-vibe-coding-partner", help="Path from project root to this Betavibe pack")
     p.add_argument("--self-test", action="store_true", help="Run install self-test after installation")
+    p.add_argument("--enforce-runtime", action="store_true", help="Install a git pre-commit hook that blocks commits without recent Betavibe runtime evidence")
+    p.add_argument("--require-failed", action="store_true", help="With --enforce-runtime, require at least one failed command plus passing verification")
     p.set_defaults(func=cmd_install)
 
     p = sub.add_parser("self-test")

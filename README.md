@@ -120,6 +120,14 @@ python3 -m betavibe run-finish "$RUN_ID" --repo /path/to/project --json
 
 A high-confidence runtime draft needs failed command evidence plus a later passing verification. Human review should be reduced to approve / edit one sentence / discard.
 
+For zero-reminder harness compliance, install runtime enforcement:
+
+```bash
+python3 -m betavibe install --project /path/to/project --pack-path Betalpha-vibe-coding-partner --enforce-runtime
+```
+
+This adds a git pre-commit hook. If Codex/Claude/OpenClaw tries to commit code without recent Betavibe runtime evidence, the commit is blocked and the hook prints the exact commands needed to capture evidence. This is stronger than relying on AGENTS.md alone and is the recommended mode when you want zero-reminder harness compliance.
+
 ## Insight types
 
 - `pitfall`: hard-won bug / failure mode and verified fix.

@@ -176,5 +176,32 @@ class CliTest(unittest.TestCase):
             draft = json.loads(self.run_cli("--registry", str(reg), "run-finish", run_id, "--repo", str(repo), "--json").stdout)
             self.assertIn("calc.py", draft["evidence"]["changed_files"])
 
+    def test_enforce_blocks_commit_without_runtime_capture_then_allows_with_evidence(self):
+        with tempfile.TemporaryDirectory() as td:
+            repo = Path(td) / "repo"
+            reg = repo / ".betavibe" / "registry"
+            repo.mkdir()
+            subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True)
+            subprocess.run(["git", "config", "user.email", "t@example.com"], cwd=repo, check=True)
+            subprocess.run(["git", "config", "user.name", "t"], cwd=repo, check=True)
+            (repo / "README.md").write_text("init\n")
+            subprocess.run(["git", "add", "."], cwd=repo, check=True)
+            subprocess.run(["git", "commit", "-m", "init"], cwd=repo, check=True, capture_output=True)
+
+            pack = repo / "Betalpha-vibe-coding-partner"
+            subprocess.run(["cp", "-R", str(ROOT), str(pack)], check=True)
+            self.run_cli("--registry", str(reg), "install", "--project", str(repo), "--pack-path", "Betalpha-vibe-coding-partner", "--enforce-runtime")
+
+            (repo / "feature.py").write_text("x=1\n")
+            subprocess.run(["git", "add", "feature.py"], cwd=repo, check=True)
+            blocked = subprocess.run(["git", "commit", "-m", "feature without capture"], cwd=repo, text=True, capture_output=True)
+            self.assertNotEqual(blocked.returncode, 0)
+            self.assertIn("Betavibe blocked this commit", blocked.stderr + blocked.stdout)
+
+            run_id = self.run_cli("--registry", str(reg), "run-start", "--task", "add feature", "--harness", "codex", "--repo", str(repo)).stdout.strip()
+            self.run_cli("--registry", str(reg), "run-exec", run_id, "--cwd", str(repo), "--", sys.executable, "-c", "print('ok')")
+            allowed = subprocess.run(["git", "commit", "-m", "feature with capture"], cwd=repo, text=True, capture_output=True)
+            self.assertEqual(allowed.returncode, 0, allowed.stderr + allowed.stdout)
+
 if __name__ == "__main__":
     unittest.main()

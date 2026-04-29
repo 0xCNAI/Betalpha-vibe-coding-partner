@@ -123,6 +123,57 @@ def install_skill(project: Path) -> list[Path]:
     return changed
 
 
+def install_git_enforcement(project: Path, pack_path: str = "Betalpha-vibe-coding-partner", require_failed: bool = False) -> list[Path]:
+    git_dir = project / ".git"
+    if not git_dir.exists():
+        return []
+    hook = git_dir / "hooks" / "pre-commit"
+    marker_start = "# BETAVIBE_PRE_COMMIT_START"
+    marker_end = "# BETAVIBE_PRE_COMMIT_END"
+    require_failed_value = "1" if require_failed else "0"
+    block = f'''{marker_start}
+# Betavibe runtime-capture enforcement. Installed by Betalpha Vibe Coding Partner.
+PROJECT_ROOT="$(git rev-parse --show-toplevel)"
+REGISTRY="$PROJECT_ROOT/.betavibe/registry"
+PACK="$PROJECT_ROOT/{pack_path}"
+if [ -d "$PACK" ]; then
+  cd "$PACK"
+  python3 -m betavibe --registry "$REGISTRY" enforce --max-age-minutes 240 --require-failed {require_failed_value}
+  STATUS=$?
+  cd "$PROJECT_ROOT"
+  if [ "$STATUS" -ne 0 ]; then
+    cat <<'EOF'
+
+Betavibe blocked this commit because no valid runtime capture evidence was found.
+
+Before committing non-trivial code changes, run:
+
+  RUN_ID=$(cd Betalpha-vibe-coding-partner && python3 -m betavibe --registry ../.betavibe/registry run-start --task "<task>" --harness codex --repo ..)
+  cd Betalpha-vibe-coding-partner && python3 -m betavibe --registry ../.betavibe/registry run-exec "$RUN_ID" --cwd .. -- <failing-or-verification-command>
+  cd Betalpha-vibe-coding-partner && python3 -m betavibe --registry ../.betavibe/registry run-exec "$RUN_ID" --cwd .. -- <passing-verification-command>
+  cd Betalpha-vibe-coding-partner && python3 -m betavibe --registry ../.betavibe/registry run-finish "$RUN_ID" --repo ..
+
+Then retry git commit.
+EOF
+    exit "$STATUS"
+  fi
+fi
+{marker_end}'''
+    old = hook.read_text(encoding="utf-8") if hook.exists() else "#!/usr/bin/env bash\nset -uo pipefail\n"
+    if marker_start in old and marker_end in old:
+        before = old.split(marker_start, 1)[0].rstrip()
+        after = old.split(marker_end, 1)[1].lstrip()
+        new = before + "\n" + block + "\n" + after
+    else:
+        new = old.rstrip() + "\n\n" + block + "\n"
+    if new != old:
+        hook.parent.mkdir(parents=True, exist_ok=True)
+        hook.write_text(new, encoding="utf-8")
+        hook.chmod(0o755)
+        return [hook]
+    return []
+
+
 def install_hooks(project: Path, pack_path: str = "Betalpha-vibe-coding-partner") -> list[Path]:
     hooks_dir = project / ".betavibe" / "hooks"
     hooks_dir.mkdir(parents=True, exist_ok=True)
@@ -157,9 +208,12 @@ python3 -m betavibe should-capture "$@"
     return changed
 
 
-def install_all(project: Path, pack_path: str = "Betalpha-vibe-coding-partner") -> dict[str, list[Path]]:
-    return {
+def install_all(project: Path, pack_path: str = "Betalpha-vibe-coding-partner", enforce_runtime: bool = False, require_failed: bool = False) -> dict[str, list[Path]]:
+    result = {
         "contract": install_contract(project, pack_path),
         "skill": install_skill(project),
         "hooks": install_hooks(project, pack_path),
     }
+    if enforce_runtime:
+        result["git_enforcement"] = install_git_enforcement(project, pack_path, require_failed=require_failed)
+    return result
