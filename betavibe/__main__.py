@@ -8,6 +8,7 @@ from .gitmine import mine_git
 from .models import Insight
 from .registry import init_registry, list_insights, list_pending, resolve_registry, write_insight, write_pending
 from .search import search_insights
+from . import gbrain_adapter
 
 
 def csv(value: str | None) -> list[str]:
@@ -72,6 +73,12 @@ def cmd_capture(args) -> int:
     )
     path = write_insight(insight, registry)
     print(f"wrote insight: {path}")
+    if args.sync_gbrain:
+        slug = gbrain_adapter.sync_insight(insight)
+        if slug:
+            print(f"synced to gbrain: {slug}")
+        else:
+            print("gbrain sync skipped/failed; local registry remains source of truth")
     return 0
 
 
@@ -156,11 +163,13 @@ def cmd_resolve(args) -> int:
     print(f"context: {args.context}")
     print("")
     if not hits:
-        print("No matching reviewed insights. Continue, but capture any hard-won lesson if debugging gets painful.")
-        if args.phase in ("pre_spec", "pre_implement"):
-            print("Checklist: define verification before implementation; prefer stable tools over clever one-offs.")
-        return 0
-    print(f"Relevant reviewed insights: {len(hits)}\n")
+        print("No matching local reviewed insights.")
+    else:
+        print(f"Relevant local reviewed insights: {len(hits)}\n")
+    spec_guardrails = []
+    wrong_paths = []
+    tool_notes = []
+    verification = []
     for score, insight, matched in hits:
         print(f"## [{insight.type}] {insight.title}")
         print(f"matched: {', '.join(matched)} | score: {score:.2f}")
@@ -169,8 +178,37 @@ def cmd_resolve(args) -> int:
         if insight.path:
             print(f"read: {insight.path}")
         print("")
+        spec_guardrails.append(insight.prevention_signal)
+        if insight.body.get("wrong_paths"):
+            wrong_paths.append(insight.body["wrong_paths"][:300])
+        if insight.type == "tool_choice" or insight.body.get("tool_guidance"):
+            tool_notes.append(insight.body.get("tool_guidance") or insight.summary)
+        verification.append(insight.verify_trigger)
+
+    gbrain_hits = [] if args.no_gbrain else gbrain_adapter.query(query, limit=max(0, args.gbrain_limit))
+    if gbrain_hits:
+        print("## GBrain semantic hits")
+        for h in gbrain_hits:
+            stale = " STALE" if h.stale else ""
+            print(f"- {h.slug} ({h.score:.3f}){stale}")
+            print("  " + h.snippet.replace("\n", "\n  ")[:500])
+        print("")
+
     if args.phase in ("pre_spec", "pre_implement"):
-        print("Agent instruction: apply the relevant prevention_signal items before proceeding. Do not merely mention them.")
+        print("# Spec-ready synthesis")
+        print("## Spec guardrails")
+        for item in spec_guardrails[:8] or ["No reviewed local guardrail found; define verification before implementation."]:
+            print(f"- {item}")
+        print("## Known wrong paths")
+        for item in wrong_paths[:5] or ["No local wrong-path evidence found."]:
+            print(f"- {item}")
+        print("## Tools to prefer / avoid")
+        for item in tool_notes[:5] or ["No specific prior tool-choice insight found; choose the simplest verifiable tool path."]:
+            print(f"- {item}")
+        print("## Verification requirements")
+        for item in verification[:8] or ["Add a test/build/run/manual reproduction gate before claiming done."]:
+            print(f"- Re-check when: {item}")
+        print("\nAgent instruction: apply these before proceeding. Do not merely mention them.")
     return 0
 
 
@@ -249,6 +287,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--evidence")
     p.add_argument("--prevention-signal", required=True)
     p.add_argument("--verify-trigger", required=True)
+    p.add_argument("--sync-gbrain", action="store_true", help="Also write this reviewed insight to GBrain when available")
     p.set_defaults(func=cmd_capture)
 
     p = sub.add_parser("scan-git")
@@ -283,6 +322,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("phase", choices=["pre_spec", "pre_implement", "post_debug", "post_session"])
     p.add_argument("--context", required=True)
     p.add_argument("--limit", type=int, default=5)
+    p.add_argument("--gbrain-limit", type=int, default=3)
+    p.add_argument("--no-gbrain", action="store_true")
     p.set_defaults(func=cmd_resolve)
 
     p = sub.add_parser("should-capture")

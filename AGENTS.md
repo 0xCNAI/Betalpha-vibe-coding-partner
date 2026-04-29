@@ -108,6 +108,18 @@ Reject or defer capture if:
 - it is just a preference without trade-offs
 - it would not help a future agent act differently
 
+## GBrain hybrid behavior
+
+If GBrain is available, `resolve` may include semantic hits from long-term memory. Treat them as additional evidence, not automatic truth.
+
+When saving a reviewed insight, prefer syncing to GBrain too:
+
+```bash
+python3 -m betavibe capture ... --sync-gbrain
+```
+
+Local markdown remains the source of truth. GBrain improves cross-project semantic recall.
+
 ## Required before claiming done
 
 For code changes to this repository, run:

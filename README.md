@@ -85,12 +85,26 @@ python3 -m betavibe promote <pending-id>
 
 Bad memory is worse than missing memory. Git history and agents can draft candidates, but only reviewed insights should enter `registry/insights/`.
 
+## Hybrid with GBrain
+
+Betavibe is the workflow / schema / resolver layer. GBrain is the semantic memory backend.
+
+- `capture --sync-gbrain` writes reviewed insights to local markdown and GBrain when available.
+- `resolve` searches local reviewed insights and also queries GBrain semantic memory unless `--no-gbrain` is passed.
+- Local markdown remains the source of truth; GBrain improves recall across wording, projects, and related concepts.
+
+## Testing whether it is useful
+
+Read `docs/USEFULNESS_TESTING.md`. The short version: test against old painful bugs and compare resolver-assisted vs non-assisted agents. If it only creates nicer notes but does not avoid wrong paths, improve it or kill it.
+
 ## Key files
 
 - `AGENTS.md` — main drop-in instructions for all agents.
 - `CLAUDE.md`, `.claude/CLAUDE.md` — Claude Code entrypoints.
 - `.codex/AGENTS.md` — Codex entrypoint.
 - `COWORK.md` — Cowork-readable guidance.
+- `docs/RESOLVERS.md` — lifecycle resolver behavior.
+- `docs/USEFULNESS_TESTING.md` — A/B tests for real usefulness.
 - `betavibe/` — resolver CLI.
 - `registry/insights/` — reviewed insight database.
 - `registry/pending/` — auto-mined candidates awaiting review.
