@@ -50,6 +50,12 @@ If it returns `CAPTURE_RECOMMENDED`, first try:
 
 If `learn` creates a pending reusable lesson, ask human approval before promotion. If it says the run is not strong enough, use the Betavibe insight skill/workflow: ask human approval, prefill inferred fields, ask only missing judgment fields, then save with `capture ... --sync-gbrain`.
 
+If recall missed a lesson that should have existed, log it cheaply instead of letting the cold-start gap disappear:
+
+```bash
+{prefix}python3 -m betavibe journal --task "<task>" --miss "<what prior lesson should have existed>"
+```
+
 Memory layers:
 - Local registry files are the source of truth across OpenClaw, Claude Code, Codex, Cursor, and other harnesses.
 - GBrain is an optional semantic index. Check with `{prefix}python3 -m betavibe doctor`; if GBrain is missing/unhealthy, continue with the local registry and tell the human how to install/fix GBrain instead of blocking.

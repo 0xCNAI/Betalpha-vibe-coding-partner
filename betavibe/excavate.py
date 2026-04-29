@@ -10,20 +10,45 @@ import subprocess
 from .gitmine import git_log, infer_tags, infer_tech
 
 FIX_RE = re.compile(r"\b(fix|fixed|hotfix|bug|regression|broken|fail|failure|permission-denied|timeout|crash|rollback|revert|build blockers?)\b", re.I)
-TOPIC_RE = re.compile(r"(auth|login|firebase|firestore|rules|functions?|typescript|build|schema|migration|receive|picker|picking|hq|home|hooks?|maestro|test|android|expo|batch|catalog|supplement|delivery|replenishment|submodule)", re.I)
+TOPIC_RE = re.compile(r"(auth|login|firebase|firestore|rules|functions?|typescript|build|schema|migration|receive|picker|picking|hq|home|hooks?|maestro|test|android|expo|batch|catalog|supplement|delivery|replenishment|submodule|gateway|sessions?|browser|mcp|discord|telegram|cron|memory|agent|resolver|runtime|gbrain|registry|cli|api|config|oauth|webhook|database|cache|sync|deploy|worker|queue|mobile|ios|electron|vite|react)", re.I)
 
 
 def run_git(repo: Path, args: list[str]) -> subprocess.CompletedProcess[str]:
     return subprocess.run(["git", *args], cwd=repo, capture_output=True, text=True, check=False)
 
 
+def _normalize_topic(value: str) -> str:
+    value = re.sub(r"[^a-z0-9_.-]+", "-", value.lower()).strip("-_")
+    aliases = {"session": "sessions", "function": "functions", "hook": "hooks", "rule": "rules"}
+    return aliases.get(value.rstrip("s"), value.rstrip("s")) or "general"
+
+
+def _path_topics(files: list[str]) -> list[str]:
+    hits: list[str] = []
+    skip = {"src", "lib", "app", "packages", "apps", "scripts", "tests", "test", "dist", "build"}
+    for path in files:
+        parts = [p for p in Path(path).parts if p not in skip and not p.startswith(".")]
+        candidates = []
+        if parts:
+            candidates.append(parts[0])
+        if len(parts) > 1:
+            candidates.append(f"{parts[0]}/{Path(parts[-1]).stem}" if parts[0] in {"skills", "agents", "packages", "apps"} else Path(parts[-1]).stem)
+        for c in candidates:
+            topic = _normalize_topic(c)
+            if len(topic) >= 3 and topic not in hits:
+                hits.append(topic)
+    return hits
+
+
 def _topic(commit: dict) -> str:
-    text = " ".join([commit.get("subject", ""), commit.get("body", ""), *commit.get("files", [])]).lower()
+    files = commit.get("files", [])
+    text = " ".join([commit.get("subject", ""), commit.get("body", ""), *files]).lower()
     hits = []
     for match in TOPIC_RE.finditer(text):
-        value = match.group(1).lower().rstrip("s")
-        if value == "function":
-            value = "functions"
+        value = _normalize_topic(match.group(1))
+        if value not in hits:
+            hits.append(value)
+    for value in _path_topics(files):
         if value not in hits:
             hits.append(value)
     return "+".join(hits[:3]) or "general"

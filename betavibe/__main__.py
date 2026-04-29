@@ -15,6 +15,7 @@ from .install import install_contract as install_agent_contract, install_all
 from .sync import commit_registry
 from .runtime_capture import start_run, run_command, finish_run, verify_command, learn_from_run
 from .enforce import check_runtime_required
+from .usage import log_resolver_event, log_journal_event, summarize_usage, format_metrics
 
 
 def csv(value: str | None) -> list[str]:
@@ -384,6 +385,7 @@ def cmd_promote(args) -> int:
 def cmd_recall(args) -> int:
     class Obj: pass
     o = Obj()
+    o.registry = args.registry
     o.phase = "pre_implement"
     o.context = args.context
     o.limit = args.limit
@@ -412,6 +414,25 @@ def cmd_learn(args) -> int:
     message, path = learn_from_run(registry, run_id=args.run_id)
     print(message)
     return 0 if (path or args.allow_noop) else 1
+
+
+def cmd_journal(args) -> int:
+    registry = resolve_registry(args.registry)
+    if not any([args.miss, args.wrong_path, args.useful_hit, args.note]):
+        raise SystemExit("journal needs --miss, --wrong-path, --useful-hit, or --note")
+    log_journal_event(registry, miss=args.miss, wrong_path=args.wrong_path, useful_hit=args.useful_hit, task=args.task, note=args.note)
+    print("journal entry recorded")
+    return 0
+
+
+def cmd_metrics(args) -> int:
+    registry = resolve_registry(args.registry)
+    summary = summarize_usage(registry)
+    if args.json:
+        print(json.dumps(summary, ensure_ascii=False, indent=2))
+    else:
+        print(format_metrics(summary))
+    return 0
 
 
 def cmd_resolve(args) -> int:
@@ -459,6 +480,10 @@ def cmd_resolve(args) -> int:
             print(f"- {h.slug} ({h.score:.3f}){stale}")
             print("  " + h.snippet.replace("\n", "\n  ")[:500])
         print("")
+
+    local_hit_rows = [{"score": score, "title": insight.title, "type": insight.type, "path": str(insight.path) if insight.path else None} for score, insight, matched in hits]
+    gbrain_hit_rows = [{"slug": h.slug, "score": h.score, "stale": h.stale} for h in gbrain_hits]
+    log_resolver_event(registry, phase=args.phase, context=args.context, local_hits=local_hit_rows, gbrain_hits=gbrain_hit_rows, harness=os.environ.get("BETAVIBE_HARNESS"))
 
     if args.phase in ("pre_spec", "pre_implement"):
         print("# Spec-ready synthesis")
@@ -701,6 +726,18 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--run-id", default=None, help="Runtime run to turn into a pending lesson; defaults to latest run")
     p.add_argument("--allow-noop", action="store_true", help="Return success even when the latest run is not strong enough to learn from")
     p.set_defaults(func=cmd_learn)
+
+    p = sub.add_parser("journal")
+    p.add_argument("--task", default=None, help="Task/context this journal note belongs to")
+    p.add_argument("--miss", default=None, help="Insight that should have existed but was missing")
+    p.add_argument("--wrong-path", default=None, help="Wrong path taken that should become a future lesson candidate")
+    p.add_argument("--useful-hit", default=None, help="Insight/slug/title that was actually useful")
+    p.add_argument("--note", default=None, help="Freeform short observation")
+    p.set_defaults(func=cmd_journal)
+
+    p = sub.add_parser("metrics")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_metrics)
 
     p = sub.add_parser("run-start")
     p.add_argument("--task", required=True)

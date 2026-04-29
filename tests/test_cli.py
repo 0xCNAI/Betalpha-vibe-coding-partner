@@ -280,5 +280,34 @@ class CliTest(unittest.TestCase):
             out = self.run_cli("--registry", str(reg), "learn", "--allow-noop").stdout
             self.assertIn("not strong enough", out)
 
+    def test_recall_logs_usage_and_metrics_reports_cold_start(self):
+        with tempfile.TemporaryDirectory() as td:
+            reg = Path(td) / "registry"
+            self.run_cli("--registry", str(reg), "init")
+            self.run_cli("--registry", str(reg), "recall", "fix auth deploy bug", "--no-gbrain")
+            usage = reg / "usage" / "resolver_events.jsonl"
+            self.assertTrue(usage.exists())
+            rows = [json.loads(line) for line in usage.read_text().splitlines() if line.strip()]
+            self.assertEqual(rows[-1]["phase"], "pre_implement")
+            out = self.run_cli("--registry", str(reg), "metrics").stdout
+            self.assertIn("resolver_calls: 1", out)
+            self.assertIn("Cold-start note", out)
+
+    def test_journal_logs_misses_and_metrics_counts_them(self):
+        with tempfile.TemporaryDirectory() as td:
+            reg = Path(td) / "registry"
+            self.run_cli("--registry", str(reg), "journal", "--task", "fix gateway sessions", "--miss", "sessions.list payload cap should have existed", "--wrong-path", "looked at Discord reconnect first")
+            out = self.run_cli("--registry", str(reg), "metrics", "--json").stdout
+            metrics = json.loads(out)
+            self.assertEqual(metrics["journal_entries"], 1)
+            self.assertEqual(metrics["journal_misses"], 1)
+            self.assertEqual(metrics["journal_wrong_paths"], 1)
+
+    def test_excavate_adaptive_topic_from_openclaw_style_paths(self):
+        from betavibe.excavate import _topic
+        topic = _topic({"subject": "fix session list timeout", "body": "", "files": ["packages/gateway/src/sessions/store.ts", "packages/browser/src/mcp/client.ts"]})
+        self.assertIn("sessions", topic)
+        self.assertNotEqual(topic, "general")
+
 if __name__ == "__main__":
     unittest.main()
