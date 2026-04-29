@@ -1,0 +1,23 @@
+{
+  "id": "betavibe-lifecycle",
+  "name": "Betavibe Lifecycle",
+  "description": "Injects Betavibe resolver context before coding turns and detects hard-won verified debugging sessions after agent turns.",
+  "activation": {
+    "onStartup": true
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "enabled": { "type": "boolean", "default": true },
+      "projectRoot": { "type": "string" },
+      "betavibePath": { "type": "string" },
+      "registry": { "type": "string" },
+      "maxResolveMs": { "type": "number", "default": 2500 },
+      "maxPromptChars": { "type": "number", "default": 3500 },
+      "minDebugMinutes": { "type": "number", "default": 20 },
+      "maxSessionChecksMs": { "type": "number", "default": 3000 },
+      "dryRun": { "type": "boolean", "default": true }
+    }
+  }
+}

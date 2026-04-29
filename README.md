@@ -113,6 +113,7 @@ Read `docs/USEFULNESS_TESTING.md`. The short version: test against old painful b
 - `docs/USEFULNESS_TESTING.md` — A/B tests for real usefulness.
 - `skills/betavibe-insight/SKILL.md` — bundled agent skill for correct capture workflow.
 - `.betavibe/hooks/` after install — deterministic wrappers agents/hooks can call.
+- `docs/OPENCLAW_LIFECYCLE.md` — optional OpenClaw plugin integration for automatic resolver/capture lifecycle hooks.
 - `betavibe/` — resolver CLI.
 - `registry/insights/` — reviewed insight database.
 - `registry/pending/` — auto-mined candidates awaiting review.

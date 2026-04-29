@@ -1,0 +1,13 @@
+{
+  "name": "@betalpha/openclaw-betavibe-lifecycle",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "OpenClaw lifecycle hooks for Betalpha Vibe Coding Partner",
+  "openclaw": {
+    "extensions": ["./index.js"],
+    "compat": {
+      "pluginApi": ">=2026.4.27",
+      "minGatewayVersion": "2026.4.27"
+    }
+  }
+}
