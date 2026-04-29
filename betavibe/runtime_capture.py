@@ -42,11 +42,17 @@ def start_run(registry: Path, task: str, harness: str | None = None, repo: Path 
     run_id = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:8]
     paths = run_paths(registry, run_id)
     paths.root.mkdir(parents=True, exist_ok=True)
+    start_head = None
+    if repo and (repo / ".git").exists():
+        proc = subprocess.run(["git", "rev-parse", "HEAD"], cwd=repo, capture_output=True, text=True, check=False)
+        if proc.returncode == 0:
+            start_head = proc.stdout.strip()
     summary = {
         "id": run_id,
         "task": task,
         "harness": harness or os.environ.get("BETAVIBE_HARNESS") or "unknown",
         "repo": str(repo.resolve()) if repo else None,
+        "start_head": start_head,
         "started_at": now(),
         "status": "running",
     }
@@ -87,14 +93,24 @@ def run_command(registry: Path, run_id: str, command: list[str], cwd: Path) -> i
     return proc.returncode
 
 
-def git_changed_files(repo: Path | None) -> list[str]:
+def git_changed_files(repo: Path | None, start_head: str | None = None) -> list[str]:
     if not repo or not (repo / ".git").exists():
         return []
-    proc = subprocess.run(["git", "status", "--short"], cwd=repo, capture_output=True, text=True, check=False)
-    return [line[3:] for line in proc.stdout.splitlines() if line.strip()]
+    files: list[str] = []
+    if start_head:
+        proc = subprocess.run(["git", "diff", "--name-only", f"{start_head}..HEAD"], cwd=repo, capture_output=True, text=True, check=False)
+        if proc.returncode == 0:
+            files.extend([line.strip() for line in proc.stdout.splitlines() if line.strip()])
+    proc = subprocess.run(["git", "status", "--porcelain"], cwd=repo, capture_output=True, text=True, check=False)
+    for line in proc.stdout.splitlines():
+        if line.strip():
+            path = line[3:]
+            if path not in files:
+                files.append(path)
+    return files
 
 
-def infer_draft(events: list[dict], task: str, repo: Path | None = None) -> dict:
+def infer_draft(events: list[dict], task: str, repo: Path | None = None, start_head: str | None = None) -> dict:
     commands = [e for e in events if e.get("kind") == "command"]
     failed = [e for e in commands if not e.get("ok")]
     passed_after_failure = []
@@ -104,7 +120,7 @@ def infer_draft(events: list[dict], task: str, repo: Path | None = None) -> dict
             seen_failure = True
         elif seen_failure:
             passed_after_failure.append(e)
-    changed = git_changed_files(repo)
+    changed = git_changed_files(repo, start_head=start_head)
     risky = any(word in task.lower() for word in ["auth", "schema", "migration", "gbrain", "sync", "capture", "runtime", "test", "ci"])
     confidence = "high" if failed and passed_after_failure else ("medium" if failed or commands else "low")
     title = task.strip()[:90] or "Runtime captured development lesson"
@@ -144,10 +160,10 @@ def finish_run(registry: Path, run_id: str, repo: Path | None = None) -> dict:
     events = read_events(registry, run_id)
     start = next((e for e in events if e.get("kind") == "start"), {})
     task = start.get("task", "")
-    draft = infer_draft(events, task, repo=repo)
-    append_event(registry, run_id, {"kind": "finish", "draft": draft})
     summary_path = run_paths(registry, run_id).summary
     summary = json.loads(summary_path.read_text(encoding="utf-8")) if summary_path.exists() else {"id": run_id}
+    draft = infer_draft(events, task, repo=repo, start_head=summary.get("start_head"))
+    append_event(registry, run_id, {"kind": "finish", "draft": draft})
     summary.update({"status": "finished", "finished_at": now(), "draft": draft})
     summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
     return draft

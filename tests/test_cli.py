@@ -158,5 +158,23 @@ class CliTest(unittest.TestCase):
             self.assertIn("Final captured verification passed", draft["fix"])
             self.assertEqual(len(draft["evidence"]["commands"]), 2)
 
+    def test_runtime_capture_includes_files_changed_between_start_and_finish_commits(self):
+        with tempfile.TemporaryDirectory() as td:
+            repo = Path(td) / "repo"
+            reg = repo / ".betavibe" / "registry"
+            repo.mkdir()
+            subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True)
+            subprocess.run(["git", "config", "user.email", "t@example.com"], cwd=repo, check=True)
+            subprocess.run(["git", "config", "user.name", "t"], cwd=repo, check=True)
+            (repo / "calc.py").write_text("def add(a, b):\n    return a - b\n")
+            subprocess.run(["git", "add", "."], cwd=repo, check=True)
+            subprocess.run(["git", "commit", "-m", "init broken calc"], cwd=repo, check=True, capture_output=True)
+            run_id = self.run_cli("--registry", str(reg), "run-start", "--task", "fix arithmetic regression", "--harness", "openclaw", "--repo", str(repo)).stdout.strip()
+            (repo / "calc.py").write_text("def add(a, b):\n    return a + b\n")
+            subprocess.run(["git", "add", "."], cwd=repo, check=True)
+            subprocess.run(["git", "commit", "-m", "fix calc"], cwd=repo, check=True, capture_output=True)
+            draft = json.loads(self.run_cli("--registry", str(reg), "run-finish", run_id, "--repo", str(repo), "--json").stdout)
+            self.assertIn("calc.py", draft["evidence"]["changed_files"])
+
 if __name__ == "__main__":
     unittest.main()
