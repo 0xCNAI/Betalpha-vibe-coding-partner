@@ -199,9 +199,28 @@ class CliTest(unittest.TestCase):
             self.assertIn("Betavibe blocked this commit", blocked.stderr + blocked.stdout)
 
             run_id = self.run_cli("--registry", str(reg), "run-start", "--task", "add feature", "--harness", "codex", "--repo", str(repo)).stdout.strip()
+            self.run_cli("--registry", str(reg), "run-exec", run_id, "--cwd", str(repo), "--no-fail", "--", sys.executable, "-c", "import sys; sys.exit(2)")
+            still_blocked = subprocess.run(["git", "commit", "-m", "feature pass missing"], cwd=repo, text=True, capture_output=True)
+            self.assertNotEqual(still_blocked.returncode, 0)
+            self.assertIn("passing verification", still_blocked.stderr + still_blocked.stdout)
             self.run_cli("--registry", str(reg), "run-exec", run_id, "--cwd", str(repo), "--", sys.executable, "-c", "print('ok')")
             allowed = subprocess.run(["git", "commit", "-m", "feature with capture"], cwd=repo, text=True, capture_output=True)
             self.assertEqual(allowed.returncode, 0, allowed.stderr + allowed.stdout)
+
+    def test_install_writes_gbrain_status_file(self):
+        with tempfile.TemporaryDirectory() as td:
+            repo = Path(td) / "repo"
+            reg = repo / ".betavibe" / "registry"
+            repo.mkdir()
+            subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True)
+            pack = repo / "Betalpha-vibe-coding-partner"
+            subprocess.run(["cp", "-R", str(ROOT), str(pack)], check=True)
+            self.run_cli("--registry", str(reg), "install", "--project", str(repo), "--pack-path", "Betalpha-vibe-coding-partner")
+            status = repo / ".betavibe" / "GBRAIN_STATUS.md"
+            self.assertTrue(status.exists())
+            text = status.read_text()
+            self.assertIn("GBrain is the optional semantic recall layer", text)
+            self.assertIn("Agents must not silently assume GBrain is available", text)
 
 if __name__ == "__main__":
     unittest.main()

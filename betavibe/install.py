@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import shutil
+from . import gbrain_adapter
 
 START = "<!-- BETAVIBE_AGENT_CONTRACT_START -->"
 END = "<!-- BETAVIBE_AGENT_CONTRACT_END -->"
@@ -123,7 +124,33 @@ def install_skill(project: Path) -> list[Path]:
     return changed
 
 
-def install_git_enforcement(project: Path, pack_path: str = "Betalpha-vibe-coding-partner", require_failed: bool = False) -> list[Path]:
+def write_gbrain_status(project: Path) -> list[Path]:
+    status = gbrain_adapter.status()
+    path = project / ".betavibe" / "GBRAIN_STATUS.md"
+    lines = [
+        "# Betavibe GBrain Status",
+        "",
+        "GBrain is the optional semantic recall layer. The git registry remains the source of truth.",
+        "",
+        f"- installed: {'yes' if status.installed else 'no'}",
+        f"- healthy: {'yes' if status.healthy else 'no'}",
+        f"- binary: `{status.binary or 'not found on PATH'}`",
+        f"- detail: {status.detail}",
+        f"- guidance: {status.install_hint}",
+        "",
+        "Agents must not silently assume GBrain is available. If this file says unhealthy/missing, continue with local registry and tell the human that semantic sync is disabled.",
+        "",
+    ]
+    old = path.read_text(encoding="utf-8") if path.exists() else None
+    text = "\n".join(lines)
+    if old != text:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+        return [path]
+    return []
+
+
+def install_git_enforcement(project: Path, pack_path: str = "Betalpha-vibe-coding-partner", require_failed: bool = True) -> list[Path]:
     git_dir = project / ".git"
     if not git_dir.exists():
         return []
@@ -144,7 +171,11 @@ if [ -d "$PACK" ]; then
   if [ "$STATUS" -ne 0 ]; then
     cat <<'EOF'
 
-Betavibe blocked this commit because no valid runtime capture evidence was found.
+Betavibe blocked this commit because valid runtime capture evidence was not found.
+
+Strict mode requires BOTH:
+1. a captured failing command (for example the failing pytest before the fix)
+2. a later captured passing verification command
 
 Before committing non-trivial code changes, run:
 
@@ -208,11 +239,12 @@ python3 -m betavibe should-capture "$@"
     return changed
 
 
-def install_all(project: Path, pack_path: str = "Betalpha-vibe-coding-partner", enforce_runtime: bool = False, require_failed: bool = False) -> dict[str, list[Path]]:
+def install_all(project: Path, pack_path: str = "Betalpha-vibe-coding-partner", enforce_runtime: bool = False, require_failed: bool = True) -> dict[str, list[Path]]:
     result = {
         "contract": install_contract(project, pack_path),
         "skill": install_skill(project),
         "hooks": install_hooks(project, pack_path),
+        "gbrain_status": write_gbrain_status(project),
     }
     if enforce_runtime:
         result["git_enforcement"] = install_git_enforcement(project, pack_path, require_failed=require_failed)

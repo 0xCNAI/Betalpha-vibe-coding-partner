@@ -22,24 +22,27 @@ class GBrainStatus:
     healthy: bool
     detail: str
     install_hint: str
+    binary: str | None = None
 
 
 def status() -> GBrainStatus:
-    if not shutil.which("gbrain"):
+    binary = shutil.which("gbrain")
+    if not binary:
         return GBrainStatus(
             installed=False,
             healthy=False,
             detail="gbrain CLI not found on PATH",
-            install_hint="Install/configure GBrain first, then rerun `python3 -m betavibe doctor`. Until then, Betavibe still works with local registry + git sync.",
+            install_hint="GBrain is optional but recommended for semantic recall. Install/configure the `gbrain` CLI, ensure it is on PATH, then rerun `python3 -m betavibe doctor`. Until then, Betavibe still works with local registry + git sync.",
+            binary=None,
         )
     try:
         proc = subprocess.run(["gbrain", "doctor", "--fast", "--json"], capture_output=True, text=True, timeout=20)
     except Exception as exc:
-        return GBrainStatus(True, False, f"gbrain doctor failed to run: {exc}", "Run `gbrain doctor` manually and fix the reported setup issue.")
+        return GBrainStatus(True, False, f"gbrain doctor failed to run: {exc}", "Run `gbrain doctor` manually and fix the reported setup issue.", binary=binary)
     if proc.returncode == 0:
-        return GBrainStatus(True, True, "gbrain doctor passed", "No action needed.")
+        return GBrainStatus(True, True, "gbrain doctor passed", "No action needed.", binary=binary)
     detail = (proc.stderr or proc.stdout or "gbrain doctor returned non-zero").strip()
-    return GBrainStatus(True, False, detail, "Run `gbrain doctor` and complete initialization/auth/import fixes before enabling semantic sync.")
+    return GBrainStatus(True, False, detail, "Run `gbrain doctor` and complete initialization/auth/import fixes before enabling semantic sync.", binary=binary)
 
 
 def available() -> bool:

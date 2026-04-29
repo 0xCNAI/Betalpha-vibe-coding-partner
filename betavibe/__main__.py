@@ -255,6 +255,7 @@ def cmd_doctor(args) -> int:
     g = gbrain_adapter.status()
     print(f"- gbrain installed: {'yes' if g.installed else 'no'}")
     print(f"- gbrain healthy: {'yes' if g.healthy else 'no'}")
+    print(f"- gbrain binary: {g.binary or 'not found on PATH'}")
     print(f"- gbrain detail: {g.detail}")
     print(f"- gbrain guidance: {g.install_hint}")
     print("- cross-harness source of truth: local registry files committed to git")
@@ -498,7 +499,7 @@ def cmd_install(args) -> int:
     project = Path(args.project).expanduser().resolve()
     registry = resolve_registry(args.registry)
     init_registry(registry)
-    result = install_all(project, pack_path=args.pack_path, enforce_runtime=args.enforce_runtime, require_failed=args.require_failed)
+    result = install_all(project, pack_path=args.pack_path, enforce_runtime=args.enforce_runtime, require_failed=not args.allow_pass_only)
     print(f"initialized registry: {registry}")
     for section, paths in result.items():
         if paths:
@@ -701,7 +702,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--pack-path", default="Betalpha-vibe-coding-partner", help="Path from project root to this Betavibe pack")
     p.add_argument("--self-test", action="store_true", help="Run install self-test after installation")
     p.add_argument("--enforce-runtime", action="store_true", help="Install a git pre-commit hook that blocks commits without recent Betavibe runtime evidence")
-    p.add_argument("--require-failed", action="store_true", help="With --enforce-runtime, require at least one failed command plus passing verification")
+    p.add_argument("--allow-pass-only", action="store_true", help="With --enforce-runtime, allow passing verification without failed-command evidence. Not recommended for bugfix vibecoding.")
     p.set_defaults(func=cmd_install)
 
     p = sub.add_parser("self-test")

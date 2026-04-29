@@ -120,13 +120,15 @@ python3 -m betavibe run-finish "$RUN_ID" --repo /path/to/project --json
 
 A high-confidence runtime draft needs failed command evidence plus a later passing verification. Human review should be reduced to approve / edit one sentence / discard.
 
-For zero-reminder harness compliance, install runtime enforcement:
+For zero-reminder harness compliance, install strict runtime enforcement:
 
 ```bash
 python3 -m betavibe install --project /path/to/project --pack-path Betalpha-vibe-coding-partner --enforce-runtime
 ```
 
-This adds a git pre-commit hook. If Codex/Claude/OpenClaw tries to commit code without recent Betavibe runtime evidence, the commit is blocked and the hook prints the exact commands needed to capture evidence. This is stronger than relying on AGENTS.md alone and is the recommended mode when you want zero-reminder harness compliance.
+This adds a git pre-commit hook. If Codex/Claude/OpenClaw tries to commit code without recent Betavibe runtime evidence, the commit is blocked and the hook prints the exact commands needed to capture evidence. Strict mode requires both failed-command evidence and later passing verification, so bugfix work should produce `confidence: high` instead of pass-only medium captures. Use `--allow-pass-only` only for non-bugfix workflows.
+
+Install also writes `.betavibe/GBRAIN_STATUS.md`. Agents must read it instead of silently assuming GBrain exists. If GBrain is missing/unhealthy, Betavibe keeps working from the local git registry, but semantic sync/recall is disabled until `gbrain doctor` passes.
 
 ## Insight types
 
