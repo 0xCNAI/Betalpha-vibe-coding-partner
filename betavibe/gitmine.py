@@ -17,20 +17,32 @@ def run(cmd: list[str], cwd: Path) -> str:
 
 
 def git_log(repo: Path, since: str | None = None, max_commits: int = 300) -> list[dict]:
-    args = ["git", "log", f"--max-count={max_commits}", "--date=iso-strict", "--name-only", "--format=--BETAVIBE--%n%H%n%ad%n%s%n%b"]
+    # Use control-character field/record separators so multi-line commit bodies
+    # cannot be confused with --name-only file paths. Plain line parsing is
+    # tempting, but real agent-authored commits often have long bodies and
+    # trailers that look path-ish (for example `Co-Authored-By` or `/users/{uid}`).
+    args = [
+        "git",
+        "log",
+        f"--max-count={max_commits}",
+        "--date=iso-strict",
+        "--name-only",
+        "--format=%x1e%H%x1f%ad%x1f%s%x1f%b%x1f",
+    ]
     if since:
         args.insert(2, f"--since={since}")
     raw = run(args, repo)
     commits: list[dict] = []
-    for chunk in raw.split("--BETAVIBE--\n"):
-        lines = chunk.strip().splitlines()
-        if len(lines) < 3:
+    for record in raw.split("\x1e"):
+        record = record.strip("\n")
+        if not record:
             continue
-        sha, dt, subject = lines[0], lines[1], lines[2]
-        rest = lines[3:]
-        files = [x.strip() for x in rest if x.strip() and not x.startswith("    ")]
-        body_lines = [x for x in rest if x.startswith("    ")]
-        commits.append({"sha": sha, "date": dt, "subject": subject, "body": "\n".join(body_lines), "files": files})
+        parts = record.split("\x1f", 4)
+        if len(parts) < 5:
+            continue
+        sha, dt, subject, body, file_blob = parts
+        files = [x.strip() for x in file_blob.splitlines() if x.strip()]
+        commits.append({"sha": sha, "date": dt, "subject": subject, "body": body.strip(), "files": files})
     return commits
 
 

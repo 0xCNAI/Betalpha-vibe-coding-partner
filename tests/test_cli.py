@@ -42,12 +42,17 @@ class CliTest(unittest.TestCase):
             subprocess.run(["git", "config", "user.name", "t"], cwd=repo, check=True)
             (repo / "auth_config.py").write_text("token='x'\n")
             subprocess.run(["git", "add", "."], cwd=repo, check=True)
-            subprocess.run(["git", "commit", "-m", "fix auth token refresh regression"], cwd=repo, check=True, capture_output=True)
+            subprocess.run([
+                "git", "commit",
+                "-m", "fix auth token refresh regression",
+                "-m", "Problem: /users/{uid} lookup failed before token refresh.\nCo-Authored-By: Claude <noreply@example.com>",
+            ], cwd=repo, check=True, capture_output=True)
             out = self.run_cli("--registry", str(reg), "scan-git", str(repo)).stdout
             self.assertIn("wrote", out)
             pending = json.loads(self.run_cli("--registry", str(reg), "pending", "--json").stdout)
             self.assertTrue(pending)
             self.assertIn("auth", pending[0]["tags"])
+            self.assertEqual(pending[0]["source"]["files"], ["auth_config.py"])
 
     def test_dogfood_writes_report_and_pending_without_github_or_gbrain(self):
         with tempfile.TemporaryDirectory() as td:
