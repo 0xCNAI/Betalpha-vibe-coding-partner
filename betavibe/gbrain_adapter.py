@@ -16,14 +16,35 @@ class GBrainHit:
     stale: bool = False
 
 
-def available() -> bool:
+@dataclass
+class GBrainStatus:
+    installed: bool
+    healthy: bool
+    detail: str
+    install_hint: str
+
+
+def status() -> GBrainStatus:
     if not shutil.which("gbrain"):
-        return False
+        return GBrainStatus(
+            installed=False,
+            healthy=False,
+            detail="gbrain CLI not found on PATH",
+            install_hint="Install/configure GBrain first, then rerun `python3 -m betavibe doctor`. Until then, Betavibe still works with local registry + git sync.",
+        )
     try:
-        subprocess.run(["gbrain", "doctor", "--fast", "--json"], capture_output=True, text=True, timeout=20)
-        return True
-    except Exception:
-        return False
+        proc = subprocess.run(["gbrain", "doctor", "--fast", "--json"], capture_output=True, text=True, timeout=20)
+    except Exception as exc:
+        return GBrainStatus(True, False, f"gbrain doctor failed to run: {exc}", "Run `gbrain doctor` manually and fix the reported setup issue.")
+    if proc.returncode == 0:
+        return GBrainStatus(True, True, "gbrain doctor passed", "No action needed.")
+    detail = (proc.stderr or proc.stdout or "gbrain doctor returned non-zero").strip()
+    return GBrainStatus(True, False, detail, "Run `gbrain doctor` and complete initialization/auth/import fixes before enabling semantic sync.")
+
+
+def available() -> bool:
+    s = status()
+    return s.installed and s.healthy
 
 
 def query(question: str, limit: int = 5) -> list[GBrainHit]:

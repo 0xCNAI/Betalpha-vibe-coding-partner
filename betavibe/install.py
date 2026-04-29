@@ -39,6 +39,21 @@ If it returns `CAPTURE_RECOMMENDED`, use the Betavibe insight skill/workflow: as
 {prefix}python3 -m betavibe capture ... --sync-gbrain
 ```
 
+Memory layers:
+- Local registry files are the source of truth across OpenClaw, Claude Code, Codex, Cursor, and other harnesses.
+- GBrain is an optional semantic index. Check with `{prefix}python3 -m betavibe doctor`; if GBrain is missing/unhealthy, continue with the local registry and tell the human how to install/fix GBrain instead of blocking.
+- After promoting reviewed insights, commit the registry so experience travels across devices/harnesses:
+
+```bash
+{prefix}python3 -m betavibe sync --repo .. --push
+```
+
+For finished projects, prefer forensic excavation over raw git scanning:
+
+```bash
+{prefix}python3 -m betavibe excavate ..
+```
+
 Capture only hard-won, verified lessons: concrete symptom, root cause, wrong paths, verified final fix, prevention signal, verify trigger. Do not store routine edits, guesses, generic advice, or unverified fixes.
 {END}
 """

@@ -6,11 +6,13 @@ import json
 import os
 from pathlib import Path
 from .gitmine import mine_git
+from .excavate import excavate, write_report as write_excavation_report
 from .models import Insight
 from .registry import init_registry, list_insights, list_pending, resolve_registry, write_insight, write_pending
 from .search import search_insights
 from . import gbrain_adapter
 from .install import install_contract as install_agent_contract, install_all
+from .sync import commit_registry
 
 
 def csv(value: str | None) -> list[str]:
@@ -214,6 +216,64 @@ def cmd_dogfood(args) -> int:
     print(f"candidates mined: {len(candidates)}; written: {len(selected)}")
     print(f"reviewed insights: {len(insights)}; pending: {len(pending)}")
     return 0
+
+
+def cmd_excavate(args) -> int:
+    registry = resolve_registry(args.registry)
+    init_registry(registry)
+    repo = Path(args.repo).expanduser().resolve()
+    if not (repo / ".git").exists():
+        raise SystemExit(f"not a git repository: {repo}")
+    findings = excavate(repo, max_commits=args.max_commits, cluster_window=args.cluster_window, limit=args.limit, include_patch=not args.no_patch)
+    for finding in findings:
+        write_pending(finding, registry)
+    if args.out:
+        out = Path(args.out).expanduser()
+    else:
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+        out = repo / ".betavibe" / "reports" / f"excavation-{stamp}.md"
+    if not out.is_absolute():
+        out = (Path.cwd() / out).resolve()
+    write_excavation_report(findings, out, repo)
+    print(f"excavation report: {out}")
+    print(f"forensic findings: {len(findings)}; pending written: {len(findings)}")
+    if findings:
+        print("top findings:")
+        for f in findings[: min(5, len(findings))]:
+            print(f"- {f['id']} [{f['score']}/{f['confidence']}] {f['title']}")
+    return 0
+
+
+def cmd_doctor(args) -> int:
+    registry = resolve_registry(args.registry)
+    print("Betavibe doctor")
+    print(f"- registry: {registry}")
+    print(f"- reviewed insights: {len(list_insights(registry))}")
+    print(f"- pending candidates: {len(list_pending(registry))}")
+    g = gbrain_adapter.status()
+    print(f"- gbrain installed: {'yes' if g.installed else 'no'}")
+    print(f"- gbrain healthy: {'yes' if g.healthy else 'no'}")
+    print(f"- gbrain detail: {g.detail}")
+    print(f"- gbrain guidance: {g.install_hint}")
+    print("- cross-harness source of truth: local registry files committed to git")
+    print("- semantic layer: GBrain optional; if missing, resolvers fall back to local registry")
+    return 0 if (not args.require_gbrain or g.healthy) else 1
+
+
+def cmd_sync(args) -> int:
+    registry = resolve_registry(args.registry)
+    repo = Path(args.repo).expanduser().resolve()
+    result = commit_registry(repo, registry, args.message, push=args.push)
+    print(result.message)
+    if result.changed:
+        print("changed:")
+        for path in result.changed:
+            print(f"- {path}")
+    if result.commit:
+        print(f"commit: {result.commit}")
+    if result.pushed:
+        print("pushed: yes")
+    return 0 if result.ok else 1
 
 
 def cmd_pending(args) -> int:
@@ -504,6 +564,25 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--pre-spec-context", help="Override generated pre_spec resolver probe context")
     p.add_argument("--pre-implement-context", help="Override generated pre_implement resolver probe context")
     p.set_defaults(func=cmd_dogfood)
+
+    p = sub.add_parser("excavate")
+    p.add_argument("repo", help="Git repository to forensically mine for fix/regression clusters")
+    p.add_argument("--max-commits", type=int, default=300)
+    p.add_argument("--cluster-window", type=int, default=4, help="Number of adjacent commits to include as context for each fix")
+    p.add_argument("--limit", type=int, default=20)
+    p.add_argument("--out", help="Markdown report path; defaults to <repo>/.betavibe/reports/excavation-<UTC timestamp>.md")
+    p.add_argument("--no-patch", action="store_true", help="Skip patch excerpts in evidence for faster/lighter output")
+    p.set_defaults(func=cmd_excavate)
+
+    p = sub.add_parser("doctor")
+    p.add_argument("--require-gbrain", action="store_true", help="Exit non-zero if GBrain is missing/unhealthy")
+    p.set_defaults(func=cmd_doctor)
+
+    p = sub.add_parser("sync")
+    p.add_argument("--repo", required=True, help="Git repo that contains the registry")
+    p.add_argument("--message", default="chore(betavibe): sync reviewed insights", help="Commit message")
+    p.add_argument("--push", action="store_true", help="Push after committing")
+    p.set_defaults(func=cmd_sync)
 
     p = sub.add_parser("pending")
     p.add_argument("--limit", type=int, default=20)

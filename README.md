@@ -87,6 +87,28 @@ python3 -m betavibe dogfood /path/to/project --out /tmp/betavibe-dogfood.md
 
 `dogfood` mines local git history, writes pending candidates, probes `pre_spec` and `pre_implement` resolver behavior, and emits a markdown report. It does not need GitHub, GBrain, or network access unless `--with-github` is explicitly passed.
 
+For already-built projects, use forensic excavation instead of raw candidate review:
+
+```bash
+python3 -m betavibe excavate /path/to/project --out /tmp/betavibe-excavation.md
+```
+
+`excavate` groups fix/regression commits with adjacent context commits and stores evidence-backed pending drafts. This reduces human work from writing lessons to approving/rejecting inferred lessons.
+
+Check cross-harness memory wiring:
+
+```bash
+python3 -m betavibe doctor
+```
+
+Betavibe's source of truth is the local `registry/` committed to git. GBrain is optional semantic recall: if installed and healthy, `--sync-gbrain` mirrors reviewed insights there; if missing, agents keep working from local registry and `doctor` explains the setup gap.
+
+After promoting reviewed insights, sync them across devices/harnesses by committing the registry:
+
+```bash
+python3 -m betavibe sync --repo /path/to/project --push
+```
+
 ## Insight types
 
 - `pitfall`: hard-won bug / failure mode and verified fix.
