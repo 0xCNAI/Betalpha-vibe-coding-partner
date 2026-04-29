@@ -11,7 +11,7 @@ from .models import Insight
 from .registry import init_registry, list_insights, list_scoped_insights, list_pending, personal_registry, resolve_registry, write_insight, write_pending
 from .search import search_insights
 from . import gbrain_adapter
-from .install import install_contract as install_agent_contract, install_all
+from .install import bootstrap as bootstrap_install, install_contract as install_agent_contract, install_all, uninstall_all
 from .sync import commit_registry
 from .runtime_capture import start_run, run_command, finish_run, verify_command, learn_from_run
 from .enforce import check_runtime_required
@@ -596,25 +596,64 @@ def cmd_install_agent_contract(args) -> int:
     return 0
 
 
-def cmd_install(args) -> int:
-    project = Path(args.project).expanduser().resolve()
-    registry = resolve_registry(args.registry)
-    init_registry(registry)
-    result = install_all(project, pack_path=args.pack_path, enforce_runtime=args.enforce_runtime, strict_runtime=args.strict_runtime)
-    print(f"initialized registry: {registry}")
+def _print_install_result(result: dict, dry_run: bool = False) -> None:
     for section, paths in result.items():
+        if section == "diffs":
+            continue
         if paths:
-            print(f"installed/updated {section}:")
+            print(("would update" if dry_run else "installed/updated") + f" {section}:")
             for path in paths:
                 print(f"- {path}")
         else:
             print(f"{section}: already up to date")
-    if args.self_test:
+    if dry_run:
+        print("\n# Dry-run diff")
+        diffs = result.get("diffs") or []
+        print("".join(diffs) if diffs else "No changes.")
+
+
+def cmd_install(args) -> int:
+    project = Path(args.project).expanduser().resolve()
+    registry = resolve_registry(args.registry)
+    if not args.dry_run:
+        init_registry(registry)
+    result = install_all(project, pack_path=args.pack_path, enforce_runtime=args.enforce_runtime, strict_runtime=args.strict_runtime, minimal=args.minimal, dry_run=args.dry_run)
+    print(f"registry: {registry}" + (" (dry-run; not initialized)" if args.dry_run else ""))
+    _print_install_result(result, dry_run=args.dry_run)
+    if args.self_test and not args.dry_run:
         print("")
         class Obj: pass
         t = Obj(); t.project = str(project); t.pack_path = args.pack_path
         return cmd_self_test(t)
-    print("Run `python3 -m betavibe self-test --project <project>` to verify installation behavior.")
+    if args.dry_run:
+        print("Dry-run only; rerun without --dry-run to apply.")
+    else:
+        print("Run `python3 -m betavibe self-test --project <project>` to verify installation behavior.")
+    return 0
+
+
+def cmd_uninstall(args) -> int:
+    project = Path(args.project).expanduser().resolve()
+    result = uninstall_all(project, dry_run=args.dry_run)
+    _print_install_result(result, dry_run=args.dry_run)
+    return 0
+
+
+def cmd_bootstrap(args) -> int:
+    project = Path(args.project).expanduser().resolve()
+    registry = resolve_registry(args.registry)
+    if not args.dry_run:
+        init_registry(registry)
+    result = bootstrap_install(project, args.source, vendor_path=args.vendor_path, minimal=args.minimal, enforce_runtime=args.enforce_runtime, strict_runtime=args.strict_runtime, dry_run=args.dry_run)
+    print(f"registry: {registry}" + (" (dry-run; not initialized)" if args.dry_run else ""))
+    _print_install_result(result, dry_run=args.dry_run)
+    if args.self_test and not args.dry_run:
+        print("")
+        class Obj: pass
+        t = Obj(); t.project = str(project); t.pack_path = args.vendor_path
+        return cmd_self_test(t)
+    if args.dry_run:
+        print("Dry-run only; rerun without --dry-run to apply.")
     return 0
 
 
@@ -851,9 +890,27 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--project", required=True, help="Project root to install root contract, skills, hooks, and registry into")
     p.add_argument("--pack-path", default="Betalpha-vibe-coding-partner", help="Path from project root to this Betavibe pack")
     p.add_argument("--self-test", action="store_true", help="Run install self-test after installation")
+    p.add_argument("--dry-run", action="store_true", help="Preview files/diff without writing")
+    p.add_argument("--minimal", action="store_true", help="Only install AGENTS.md contract; no skills/hooks/GBrain status/enforcement")
     p.add_argument("--enforce-runtime", action="store_true", help="Install git hooks: pre-commit requires recent passing verification; commit-msg requires failed evidence only for bugfix/high-risk messages")
     p.add_argument("--strict-runtime", action="store_true", help="With --enforce-runtime, require failed+passing evidence for every commit. Usually too heavy; use only for focused debugging drills.")
     p.set_defaults(func=cmd_install)
+
+    p = sub.add_parser("uninstall")
+    p.add_argument("--project", required=True, help="Project root to remove Betavibe managed contract/hooks from")
+    p.add_argument("--dry-run", action="store_true", help="Preview removal diff without writing")
+    p.set_defaults(func=cmd_uninstall)
+
+    p = sub.add_parser("bootstrap")
+    p.add_argument("source", help="Git URL for Betavibe pack, e.g. https://github.com/0xCNAI/Betalpha-vibe-coding-partner")
+    p.add_argument("--project", required=True, help="Project root to bootstrap into")
+    p.add_argument("--vendor-path", default="vendor/Betalpha-vibe-coding-partner", help="Path from project root where the pack should be cloned/updated")
+    p.add_argument("--self-test", action="store_true", help="Run install self-test after bootstrap")
+    p.add_argument("--dry-run", action="store_true", help="Preview clone/install diff without writing")
+    p.add_argument("--minimal", action="store_true", help="Only install AGENTS.md contract after cloning/updating")
+    p.add_argument("--enforce-runtime", action="store_true", help="Install runtime git hooks after bootstrap")
+    p.add_argument("--strict-runtime", action="store_true")
+    p.set_defaults(func=cmd_bootstrap)
 
     p = sub.add_parser("self-test")
     p.add_argument("--project", help="Project root to verify; defaults to current directory")

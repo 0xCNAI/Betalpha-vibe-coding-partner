@@ -95,6 +95,22 @@ Pass condition:
 - at least one verification gate is added
 - no unverified/generic insight enters reviewed registry
 
+## 4-week dogfood milestones
+
+Write these down before the trial starts. Do not extend the trial just because the system feels promising.
+
+| Week | Pass condition | If it fails |
+|---|---|---|
+| 1 | Two dogfood repos each have >=3 recall calls, and at least 1 journal miss is logged. | Onboarding/contract is not in the workflow; fix install friction before judging retrieval. |
+| 2 | At least 1 pending candidate is generated from `learn`. | Runtime capture is not happening; inspect whether agents are using `verify` or whether hooks are miswired. |
+| 3 | At least 1 reviewed insight is recalled more than once. | Registry content exists but retrieval is weak; inspect tokenization, tags, and portable seeding. |
+| 4 | At least 1 self-reported case where recall changed a decision, verification plan, or avoided a wrong path. | Treat it as ritual overhead and either cut scope or kill the trial. |
+
+Suggested trial repos:
+
+- `~/clawd/tino` for OpenClaw/Tino operations lessons.
+- `food-ordering-system` for Jonathon's app development lessons.
+
 ## Decision rule
 
 Betavibe is worth keeping only if it creates one of these outcomes:

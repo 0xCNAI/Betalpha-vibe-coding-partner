@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from pathlib import Path
+import difflib
 import shutil
+import subprocess
 from . import gbrain_adapter
 
 START = "<!-- BETAVIBE_AGENT_CONTRACT_START -->"
@@ -12,73 +14,24 @@ def contract_block(pack_path: str = ".") -> str:
     p = pack_path.rstrip("/") or "."
     prefix = f"cd {p} && " if p != "." else ""
     return f"""{START}
-# Betalpha Vibe Coding Partner — mandatory resolver contract
+# Betalpha Vibe Coding Partner
 
-This project uses Betalpha Vibe Coding Partner. Do not wait for the human to remember commands.
+Use Betavibe as a low-friction debug immune system, not a logging ritual.
 
-Before writing a spec for any non-trivial feature/integration/migration/refactor, run:
+- Before non-trivial spec/design: `{prefix}python3 -m betavibe recall "<task/context>"` (shortcut for `resolve pre_spec`)
+- Before non-trivial implementation: `{prefix}python3 -m betavibe resolve pre_implement --context "<plan/files/risks>"`
+- For meaningful verification commands: `{prefix}python3 -m betavibe verify --task "<task>" --cwd .. -- <test/build/lint/typecheck/smoke>`
+- After painful verified debugging: optionally run `should-capture`, then `{prefix}python3 -m betavibe learn`; promote only with human approval.
+- If recall missed a lesson that should exist: `{prefix}python3 -m betavibe journal --task "<task>" --miss "<missing lesson>"`
 
-```bash
-{prefix}python3 -m betavibe resolve pre_spec --context "<task, APIs, files, tools, risks>"
-```
+Memory placement: project-specific lessons stay in this repo's `.betavibe/registry`; portable cross-repo lessons stay in `~/.betavibe/personal`; GBrain is optional semantic federation, not the source of truth. Store an insight where the fix lives: code -> source repo, config/cron/env -> ops repo, truly portable -> personal.
 
-Before non-trivial implementation, run:
-
-```bash
-{prefix}python3 -m betavibe resolve pre_implement --context "<implementation plan and touched files>"
-```
-
-During implementation, use Betavibe as a lightweight evidence wrapper for meaningful verification commands. Do not record every shell command. Record tests/build/lint/typecheck/deploy/emulator/smoke checks that prove or disprove the change:
-
-```bash
-{prefix}python3 -m betavibe verify --task "<task>" --cwd .. -- <test-build-lint-or-smoke-command>
-```
-
-Repeated `verify --task "<same task>"` calls append to the same runtime run, so a bugfix can naturally contain both the failing command and the later passing verification. If you hit a bug/regression, preserve the failing command evidence before fixing when feasible. Do not intentionally break working code just to satisfy evidence unless the commit gate explicitly asks and no original failure was captured.
-
-After a painful debugging session, run:
-
-```bash
-{prefix}python3 -m betavibe should-capture --debug-minutes <minutes> --attempts <wrong_attempts> --had-error-log --final-fix-verified --context "<bug summary>"
-```
-
-If it returns `CAPTURE_RECOMMENDED`, first try:
-
-```bash
-{prefix}python3 -m betavibe learn
-```
-
-If `learn` creates a pending reusable lesson, ask human approval before promotion. If it says the run is not strong enough, use the Betavibe insight skill/workflow: ask human approval, prefill inferred fields, ask only missing judgment fields, then save with `capture ... --sync-gbrain`.
-
-If recall missed a lesson that should have existed, log it cheaply instead of letting the cold-start gap disappear:
-
-```bash
-{prefix}python3 -m betavibe journal --task "<task>" --miss "<what prior lesson should have existed>"
-```
-
-Memory layers:
-- Repo-local registry files are the source of truth for project-specific lessons.
-- `~/.betavibe/personal` is the strict portable registry for cross-repo lessons only. Keep it small (target <=30 high-value insights) and use it when a lesson applies across stacks/repos.
-- GBrain is an optional semantic federation layer. Check with `{prefix}python3 -m betavibe doctor`; if GBrain is missing/unhealthy, continue with repo-local + personal registries and tell the human how to install/fix GBrain instead of blocking.
-- Placement rule: store an insight where the fix lives. Code change -> source repo registry. Config/cron/env/ops change -> operations repo registry. Truly portable lesson -> personal registry.
-- After promoting reviewed insights, commit the registry so experience travels across devices/harnesses:
-
-```bash
-{prefix}python3 -m betavibe sync --repo .. --push
-```
-
-For finished projects, prefer forensic excavation over raw git scanning:
-
-```bash
-{prefix}python3 -m betavibe excavate ..
-```
-
-Capture only hard-won, verified lessons: concrete symptom, root cause, wrong paths, verified final fix, prevention signal, verify trigger. Do not store routine edits, guesses, generic advice, or unverified fixes.
+Capture only hard-won, verified lessons. Do not store routine edits, guesses, generic advice, or unverified fixes.
 {END}
 """
 
 
-def upsert_block(path: Path, block: str) -> bool:
+def planned_upsert(path: Path, block: str) -> tuple[bool, str, str]:
     existing = path.read_text(encoding="utf-8") if path.exists() else ""
     if START in existing and END in existing:
         before = existing.split(START, 1)[0].rstrip()
@@ -92,16 +45,41 @@ def upsert_block(path: Path, block: str) -> bool:
         new = "\n\n".join(pieces) + "\n"
     else:
         new = existing.rstrip() + "\n\n" + block.rstrip() + "\n" if existing.strip() else block.rstrip() + "\n"
-    changed = new != existing
+    return new != existing, existing, new
+
+
+def diff_text(path: Path, old: str, new: str) -> str:
+    return "".join(difflib.unified_diff(old.splitlines(True), new.splitlines(True), fromfile=str(path), tofile=str(path)))
+
+
+def upsert_block(path: Path, block: str, dry_run: bool = False, diffs: list[str] | None = None) -> bool:
+    changed, old, new = planned_upsert(path, block)
     if changed:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(new, encoding="utf-8")
+        if diffs is not None:
+            diffs.append(diff_text(path, old, new))
+        if not dry_run:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(new, encoding="utf-8")
     return changed
 
 
-def install_contract(project: Path, pack_path: str = "Betalpha-vibe-coding-partner") -> list[Path]:
+def remove_between_markers(text: str, start: str, end: str) -> str:
+    if start not in text or end not in text:
+        return text
+    before = text.split(start, 1)[0].rstrip()
+    after = text.split(end, 1)[1].lstrip()
+    if before and after:
+        return before + "\n\n" + after
+    if before:
+        return before + "\n"
+    if after:
+        return after
+    return ""
+
+
+def install_contract(project: Path, pack_path: str = "Betalpha-vibe-coding-partner", minimal: bool = False, dry_run: bool = False, diffs: list[str] | None = None) -> list[Path]:
     block = contract_block(pack_path)
-    targets = [
+    targets = [project / "AGENTS.md"] if minimal else [
         project / "AGENTS.md",
         project / "CLAUDE.md",
         project / ".codex" / "AGENTS.md",
@@ -109,7 +87,7 @@ def install_contract(project: Path, pack_path: str = "Betalpha-vibe-coding-partn
     ]
     changed = []
     for target in targets:
-        if upsert_block(target, block):
+        if upsert_block(target, block, dry_run=dry_run, diffs=diffs):
             changed.append(target)
     return changed
 
@@ -123,7 +101,7 @@ def package_root() -> Path:
     return Path(__file__).resolve().parents[1]
 
 
-def install_skill(project: Path) -> list[Path]:
+def install_skill(project: Path, dry_run: bool = False, diffs: list[str] | None = None) -> list[Path]:
     src = package_root() / "skills" / "betavibe-insight" / "SKILL.md"
     if not src.exists():
         raise FileNotFoundError(f"missing bundled skill: {src}")
@@ -136,13 +114,16 @@ def install_skill(project: Path) -> list[Path]:
         existing = target.read_text(encoding="utf-8") if target.exists() else None
         text = src.read_text(encoding="utf-8")
         if existing != text:
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(text, encoding="utf-8")
+            if diffs is not None:
+                diffs.append(diff_text(target, existing or "", text))
+            if not dry_run:
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text(text, encoding="utf-8")
             changed.append(target)
     return changed
 
 
-def write_gbrain_status(project: Path) -> list[Path]:
+def write_gbrain_status(project: Path, dry_run: bool = False, diffs: list[str] | None = None) -> list[Path]:
     status = gbrain_adapter.status()
     path = project / ".betavibe" / "GBRAIN_STATUS.md"
     lines = [
@@ -162,13 +143,16 @@ def write_gbrain_status(project: Path) -> list[Path]:
     old = path.read_text(encoding="utf-8") if path.exists() else None
     text = "\n".join(lines)
     if old != text:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(text, encoding="utf-8")
+        if diffs is not None:
+            diffs.append(diff_text(path, old or "", text))
+        if not dry_run:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(text, encoding="utf-8")
         return [path]
     return []
 
 
-def install_git_enforcement(project: Path, pack_path: str = "Betalpha-vibe-coding-partner", strict_runtime: bool = False) -> list[Path]:
+def install_git_enforcement(project: Path, pack_path: str = "Betalpha-vibe-coding-partner", strict_runtime: bool = False, dry_run: bool = False, diffs: list[str] | None = None) -> list[Path]:
     git_dir = project / ".git"
     if not git_dir.exists():
         return []
@@ -244,16 +228,20 @@ fi
         else:
             new = old.rstrip() + "\n\n" + block + "\n"
         if new != old:
-            hook.parent.mkdir(parents=True, exist_ok=True)
-            hook.write_text(new, encoding="utf-8")
-            hook.chmod(0o755)
+            if diffs is not None:
+                diffs.append(diff_text(hook, old, new))
+            if not dry_run:
+                hook.parent.mkdir(parents=True, exist_ok=True)
+                hook.write_text(new, encoding="utf-8")
+                hook.chmod(0o755)
             changed.append(hook)
     return changed
 
 
-def install_hooks(project: Path, pack_path: str = "Betalpha-vibe-coding-partner") -> list[Path]:
+def install_hooks(project: Path, pack_path: str = "Betalpha-vibe-coding-partner", dry_run: bool = False, diffs: list[str] | None = None) -> list[Path]:
     hooks_dir = project / ".betavibe" / "hooks"
-    hooks_dir.mkdir(parents=True, exist_ok=True)
+    if not dry_run:
+        hooks_dir.mkdir(parents=True, exist_ok=True)
     scripts = {
         "pre_spec.sh": f"""#!/usr/bin/env bash
 set -euo pipefail
@@ -279,19 +267,81 @@ python3 -m betavibe should-capture "$@"
         path = hooks_dir / name
         old = path.read_text(encoding="utf-8") if path.exists() else None
         if old != text:
-            path.write_text(text, encoding="utf-8")
-            path.chmod(0o755)
+            if diffs is not None:
+                diffs.append(diff_text(path, old or "", text))
+            if not dry_run:
+                path.write_text(text, encoding="utf-8")
+                path.chmod(0o755)
             changed.append(path)
     return changed
 
 
-def install_all(project: Path, pack_path: str = "Betalpha-vibe-coding-partner", enforce_runtime: bool = False, strict_runtime: bool = False) -> dict[str, list[Path]]:
-    result = {
-        "contract": install_contract(project, pack_path),
-        "skill": install_skill(project),
-        "hooks": install_hooks(project, pack_path),
-        "gbrain_status": write_gbrain_status(project),
+def install_all(project: Path, pack_path: str = "Betalpha-vibe-coding-partner", enforce_runtime: bool = False, strict_runtime: bool = False, minimal: bool = False, dry_run: bool = False) -> dict[str, list[Path] | list[str]]:
+    diffs: list[str] = []
+    result: dict[str, list[Path] | list[str]] = {
+        "contract": install_contract(project, pack_path, minimal=minimal, dry_run=dry_run, diffs=diffs),
     }
-    if enforce_runtime:
-        result["git_enforcement"] = install_git_enforcement(project, pack_path, strict_runtime=strict_runtime)
+    if not minimal:
+        result.update({
+            "skill": install_skill(project, dry_run=dry_run, diffs=diffs),
+            "hooks": install_hooks(project, pack_path, dry_run=dry_run, diffs=diffs),
+            "gbrain_status": write_gbrain_status(project, dry_run=dry_run, diffs=diffs),
+        })
+    if enforce_runtime and not minimal:
+        result["git_enforcement"] = install_git_enforcement(project, pack_path, strict_runtime=strict_runtime, dry_run=dry_run, diffs=diffs)
+    result["diffs"] = diffs
+    return result
+
+
+def uninstall_all(project: Path, dry_run: bool = False) -> dict[str, list[Path] | list[str]]:
+    diffs: list[str] = []
+    changed: list[Path] = []
+    files = [project / "AGENTS.md", project / "CLAUDE.md", project / ".codex" / "AGENTS.md", project / ".claude" / "CLAUDE.md"]
+    for path in files:
+        if not path.exists():
+            continue
+        old = path.read_text(encoding="utf-8")
+        new = remove_between_markers(old, START, END)
+        if new != old:
+            diffs.append(diff_text(path, old, new))
+            if not dry_run:
+                path.write_text(new, encoding="utf-8")
+            changed.append(path)
+    hook_specs = [
+        (project / ".git" / "hooks" / "pre-commit", "# BETAVIBE_PRE_COMMIT_START", "# BETAVIBE_PRE_COMMIT_END"),
+        (project / ".git" / "hooks" / "commit-msg", "# BETAVIBE_COMMIT_MSG_START", "# BETAVIBE_COMMIT_MSG_END"),
+    ]
+    for path, start, end in hook_specs:
+        if not path.exists():
+            continue
+        old = path.read_text(encoding="utf-8")
+        new = remove_between_markers(old, start, end)
+        if new != old:
+            diffs.append(diff_text(path, old, new))
+            if not dry_run:
+                path.write_text(new, encoding="utf-8")
+            changed.append(path)
+    return {"removed": changed, "diffs": diffs}
+
+
+def bootstrap(project: Path, source: str, vendor_path: str = "vendor/Betalpha-vibe-coding-partner", minimal: bool = False, enforce_runtime: bool = False, strict_runtime: bool = False, dry_run: bool = False) -> dict[str, list[Path] | list[str]]:
+    vendor = project / vendor_path
+    diffs: list[str] = []
+    changed: list[Path] = []
+    if not vendor.exists():
+        if dry_run:
+            diffs.append(f"Would clone {source} -> {vendor}\n")
+            changed.append(vendor)
+        else:
+            vendor.parent.mkdir(parents=True, exist_ok=True)
+            subprocess.run(["git", "clone", source, str(vendor)], check=True)
+            changed.append(vendor)
+    elif (vendor / ".git").exists():
+        if dry_run:
+            diffs.append(f"Would update existing Betavibe vendor repo at {vendor}\n")
+        else:
+            subprocess.run(["git", "pull", "--ff-only"], cwd=vendor, check=True)
+    result = install_all(project, pack_path=vendor_path, enforce_runtime=enforce_runtime, strict_runtime=strict_runtime, minimal=minimal, dry_run=dry_run)
+    result["vendor"] = changed
+    result["diffs"] = [*diffs, *result.get("diffs", [])]
     return result

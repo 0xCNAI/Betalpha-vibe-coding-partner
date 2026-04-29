@@ -349,5 +349,42 @@ class CliTest(unittest.TestCase):
             self.assertEqual(recall_after_seed.stdout.count("## [pitfall]"), 1, recall_after_seed.stdout)
             self.assertNotIn("[portable]", recall_after_seed.stdout)
 
+    def test_install_dry_run_and_minimal_do_not_write_extra_files(self):
+        with tempfile.TemporaryDirectory() as td:
+            repo = Path(td) / "repo"
+            reg = repo / ".betavibe" / "registry"
+            repo.mkdir()
+            proc = subprocess.run([sys.executable, "-m", "betavibe", "--registry", str(reg), "install", "--project", str(repo), "--pack-path", "vendor/Betalpha-vibe-coding-partner", "--minimal", "--dry-run"], cwd=ROOT, text=True, capture_output=True, check=True)
+            self.assertIn("Dry-run diff", proc.stdout)
+            self.assertFalse((repo / "AGENTS.md").exists())
+            self.assertFalse((repo / ".betavibe").exists())
+            self.run_cli("--registry", str(reg), "install", "--project", str(repo), "--pack-path", "vendor/Betalpha-vibe-coding-partner", "--minimal")
+            self.assertTrue((repo / "AGENTS.md").exists())
+            self.assertFalse((repo / "CLAUDE.md").exists())
+            self.assertFalse((repo / ".betavibe" / "hooks").exists())
+
+    def test_uninstall_removes_managed_contract(self):
+        with tempfile.TemporaryDirectory() as td:
+            repo = Path(td) / "repo"
+            reg = repo / ".betavibe" / "registry"
+            repo.mkdir()
+            self.run_cli("--registry", str(reg), "install", "--project", str(repo), "--pack-path", "vendor/Betalpha-vibe-coding-partner", "--minimal")
+            self.assertIn("BETAVIBE_AGENT_CONTRACT_START", (repo / "AGENTS.md").read_text())
+            proc = self.run_cli("--registry", str(reg), "uninstall", "--project", str(repo))
+            self.assertIn("removed", proc.stdout)
+            self.assertNotIn("BETAVIBE_AGENT_CONTRACT_START", (repo / "AGENTS.md").read_text())
+
+    def test_bootstrap_from_git_source_clones_and_installs_minimal(self):
+        with tempfile.TemporaryDirectory() as td:
+            source = Path(td) / "source"
+            project = Path(td) / "project"
+            reg = project / ".betavibe" / "registry"
+            subprocess.run(["git", "clone", str(ROOT), str(source)], check=True, capture_output=True)
+            project.mkdir()
+            self.run_cli("--registry", str(reg), "bootstrap", str(source), "--project", str(project), "--minimal")
+            self.assertTrue((project / "vendor" / "Betalpha-vibe-coding-partner" / "betavibe").exists())
+            self.assertTrue((project / "AGENTS.md").exists())
+            self.assertFalse((project / "CLAUDE.md").exists())
+
 if __name__ == "__main__":
     unittest.main()
