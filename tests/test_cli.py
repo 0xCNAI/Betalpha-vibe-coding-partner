@@ -410,5 +410,33 @@ class CliTest(unittest.TestCase):
             text = self.run_cli("--registry", str(reg), "metrics").stdout
             self.assertIn("Top recalled insights", text)
 
+    def test_auto_profile_detects_ops_workspace_and_skips_extra_harness_files_and_enforcement(self):
+        with tempfile.TemporaryDirectory() as td:
+            repo = Path(td) / "ops"
+            reg = repo / ".betavibe" / "registry"
+            repo.mkdir()
+            subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True)
+            (repo / "AGENTS.md").write_text("# TinoClaw\n\n- agent_id: tino\n- role: 系統維護 + 私人助理\n")
+            pack = repo / "vendor" / "Betalpha-vibe-coding-partner"
+            subprocess.run(["mkdir", "-p", str(pack.parent)], check=True)
+            subprocess.run(["cp", "-R", str(ROOT), str(pack)], check=True)
+            out = self.run_cli("--registry", str(reg), "install", "--project", str(repo), "--pack-path", "vendor/Betalpha-vibe-coding-partner", "--enforce-runtime").stdout
+            self.assertIn("profile", out)
+            self.assertTrue((repo / "AGENTS.md").exists())
+            self.assertFalse((repo / "CLAUDE.md").exists())
+            self.assertFalse((repo / ".codex" / "AGENTS.md").exists())
+            self.assertFalse((repo / ".git" / "hooks" / "pre-commit").exists())
+            self.assertTrue((repo / ".betavibe" / "hooks" / "pre_spec.sh").exists())
+
+    def test_project_profile_keeps_full_harness_install(self):
+        with tempfile.TemporaryDirectory() as td:
+            repo = Path(td) / "app"
+            reg = repo / ".betavibe" / "registry"
+            repo.mkdir()
+            self.run_cli("--registry", str(reg), "install", "--project", str(repo), "--pack-path", "vendor/Betalpha-vibe-coding-partner", "--profile", "project")
+            self.assertTrue((repo / "AGENTS.md").exists())
+            self.assertTrue((repo / "CLAUDE.md").exists())
+            self.assertTrue((repo / ".codex" / "AGENTS.md").exists())
+
 if __name__ == "__main__":
     unittest.main()

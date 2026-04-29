@@ -77,14 +77,32 @@ def remove_between_markers(text: str, start: str, end: str) -> str:
     return ""
 
 
-def install_contract(project: Path, pack_path: str = "Betalpha-vibe-coding-partner", minimal: bool = False, dry_run: bool = False, diffs: list[str] | None = None) -> list[Path]:
-    block = contract_block(pack_path)
-    targets = [project / "AGENTS.md"] if minimal else [
+def detect_profile(project: Path) -> str:
+    """Return 'ops' for agent/operations workspaces, otherwise 'project'."""
+    markers = []
+    for rel in ["AGENTS.md", "HEARTBEAT.md", "USER.md"]:
+        path = project / rel
+        if path.exists():
+            markers.append(path.read_text(encoding="utf-8", errors="ignore")[:4000].lower())
+    text = "\n".join(markers)
+    ops_terms = ["agent_id", "tinoclaw", "heartbeat", "cron", "私人助理", "系統維護", "agent ops", "operations"]
+    return "ops" if any(term in text for term in ops_terms) else "project"
+
+
+def contract_targets(project: Path, profile: str = "project", minimal: bool = False) -> list[Path]:
+    if minimal or profile in {"ops", "openclaw"}:
+        return [project / "AGENTS.md"]
+    return [
         project / "AGENTS.md",
         project / "CLAUDE.md",
         project / ".codex" / "AGENTS.md",
         project / ".claude" / "CLAUDE.md",
     ]
+
+
+def install_contract(project: Path, pack_path: str = "Betalpha-vibe-coding-partner", minimal: bool = False, dry_run: bool = False, diffs: list[str] | None = None, profile: str = "project") -> list[Path]:
+    block = contract_block(pack_path)
+    targets = contract_targets(project, profile=profile, minimal=minimal)
     changed = []
     for target in targets:
         if upsert_block(target, block, dry_run=dry_run, diffs=diffs):
@@ -276,10 +294,12 @@ python3 -m betavibe should-capture "$@"
     return changed
 
 
-def install_all(project: Path, pack_path: str = "Betalpha-vibe-coding-partner", enforce_runtime: bool = False, strict_runtime: bool = False, minimal: bool = False, dry_run: bool = False) -> dict[str, list[Path] | list[str]]:
+def install_all(project: Path, pack_path: str = "Betalpha-vibe-coding-partner", enforce_runtime: bool = False, strict_runtime: bool = False, minimal: bool = False, dry_run: bool = False, profile: str = "auto") -> dict[str, list[Path] | list[str]]:
+    effective_profile = detect_profile(project) if profile == "auto" else profile
     diffs: list[str] = []
     result: dict[str, list[Path] | list[str]] = {
-        "contract": install_contract(project, pack_path, minimal=minimal, dry_run=dry_run, diffs=diffs),
+        "profile": [Path(effective_profile)],
+        "contract": install_contract(project, pack_path, minimal=minimal, dry_run=dry_run, diffs=diffs, profile=effective_profile),
     }
     if not minimal:
         result.update({
@@ -287,8 +307,11 @@ def install_all(project: Path, pack_path: str = "Betalpha-vibe-coding-partner", 
             "hooks": install_hooks(project, pack_path, dry_run=dry_run, diffs=diffs),
             "gbrain_status": write_gbrain_status(project, dry_run=dry_run, diffs=diffs),
         })
-    if enforce_runtime and not minimal:
+    if enforce_runtime and not minimal and effective_profile == "project":
         result["git_enforcement"] = install_git_enforcement(project, pack_path, strict_runtime=strict_runtime, dry_run=dry_run, diffs=diffs)
+    elif enforce_runtime and effective_profile != "project":
+        result["git_enforcement"] = []
+        diffs.append(f"Skipped commit enforcement for {effective_profile} workspace. Use --profile project only in product/source repos.\n")
     result["diffs"] = diffs
     return result
 
@@ -324,7 +347,7 @@ def uninstall_all(project: Path, dry_run: bool = False) -> dict[str, list[Path] 
     return {"removed": changed, "diffs": diffs}
 
 
-def bootstrap(project: Path, source: str, vendor_path: str = "vendor/Betalpha-vibe-coding-partner", minimal: bool = False, enforce_runtime: bool = False, strict_runtime: bool = False, dry_run: bool = False) -> dict[str, list[Path] | list[str]]:
+def bootstrap(project: Path, source: str, vendor_path: str = "vendor/Betalpha-vibe-coding-partner", minimal: bool = False, enforce_runtime: bool = False, strict_runtime: bool = False, dry_run: bool = False, profile: str = "auto") -> dict[str, list[Path] | list[str]]:
     vendor = project / vendor_path
     diffs: list[str] = []
     changed: list[Path] = []
@@ -341,7 +364,7 @@ def bootstrap(project: Path, source: str, vendor_path: str = "vendor/Betalpha-vi
             diffs.append(f"Would update existing Betavibe vendor repo at {vendor}\n")
         else:
             subprocess.run(["git", "pull", "--ff-only"], cwd=vendor, check=True)
-    result = install_all(project, pack_path=vendor_path, enforce_runtime=enforce_runtime, strict_runtime=strict_runtime, minimal=minimal, dry_run=dry_run)
+    result = install_all(project, pack_path=vendor_path, enforce_runtime=enforce_runtime, strict_runtime=strict_runtime, minimal=minimal, dry_run=dry_run, profile=profile)
     result["vendor"] = changed
     result["diffs"] = [*diffs, *result.get("diffs", [])]
     return result

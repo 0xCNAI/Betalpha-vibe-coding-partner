@@ -617,7 +617,7 @@ def cmd_install(args) -> int:
     registry = resolve_registry(args.registry)
     if not args.dry_run:
         init_registry(registry)
-    result = install_all(project, pack_path=args.pack_path, enforce_runtime=args.enforce_runtime, strict_runtime=args.strict_runtime, minimal=args.minimal, dry_run=args.dry_run)
+    result = install_all(project, pack_path=args.pack_path, enforce_runtime=args.enforce_runtime, strict_runtime=args.strict_runtime, minimal=args.minimal, dry_run=args.dry_run, profile=args.profile)
     print(f"registry: {registry}" + (" (dry-run; not initialized)" if args.dry_run else ""))
     _print_install_result(result, dry_run=args.dry_run)
     if args.self_test and not args.dry_run:
@@ -644,7 +644,7 @@ def cmd_bootstrap(args) -> int:
     registry = resolve_registry(args.registry)
     if not args.dry_run:
         init_registry(registry)
-    result = bootstrap_install(project, args.source, vendor_path=args.vendor_path, minimal=args.minimal, enforce_runtime=args.enforce_runtime, strict_runtime=args.strict_runtime, dry_run=args.dry_run)
+    result = bootstrap_install(project, args.source, vendor_path=args.vendor_path, minimal=args.minimal, enforce_runtime=args.enforce_runtime, strict_runtime=args.strict_runtime, dry_run=args.dry_run, profile=args.profile)
     print(f"registry: {registry}" + (" (dry-run; not initialized)" if args.dry_run else ""))
     _print_install_result(result, dry_run=args.dry_run)
     if args.self_test and not args.dry_run:
@@ -892,6 +892,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--self-test", action="store_true", help="Run install self-test after installation")
     p.add_argument("--dry-run", action="store_true", help="Preview files/diff without writing")
     p.add_argument("--minimal", action="store_true", help="Only install AGENTS.md contract; no skills/hooks/GBrain status/enforcement")
+    p.add_argument("--profile", choices=["auto", "project", "ops", "openclaw"], default="auto", help="Install profile. auto detects ops workspaces and avoids extra harness files/enforcement.")
     p.add_argument("--enforce-runtime", action="store_true", help="Install git hooks: pre-commit requires recent passing verification; commit-msg requires failed evidence only for bugfix/high-risk messages")
     p.add_argument("--strict-runtime", action="store_true", help="With --enforce-runtime, require failed+passing evidence for every commit. Usually too heavy; use only for focused debugging drills.")
     p.set_defaults(func=cmd_install)
@@ -908,6 +909,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--self-test", action="store_true", help="Run install self-test after bootstrap")
     p.add_argument("--dry-run", action="store_true", help="Preview clone/install diff without writing")
     p.add_argument("--minimal", action="store_true", help="Only install AGENTS.md contract after cloning/updating")
+    p.add_argument("--profile", choices=["auto", "project", "ops", "openclaw"], default="auto", help="Install profile. auto detects ops workspaces and avoids extra harness files/enforcement.")
     p.add_argument("--enforce-runtime", action="store_true", help="Install runtime git hooks after bootstrap")
     p.add_argument("--strict-runtime", action="store_true")
     p.set_defaults(func=cmd_bootstrap)
