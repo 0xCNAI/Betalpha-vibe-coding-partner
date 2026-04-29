@@ -1,4 +1,5 @@
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -285,7 +286,7 @@ class CliTest(unittest.TestCase):
             reg = Path(td) / "registry"
             self.run_cli("--registry", str(reg), "init")
             self.run_cli("--registry", str(reg), "recall", "fix auth deploy bug", "--no-gbrain")
-            usage = reg / "usage" / "resolver_events.jsonl"
+            usage = reg.parent / "usage" / "resolver_events.jsonl"
             self.assertTrue(usage.exists())
             rows = [json.loads(line) for line in usage.read_text().splitlines() if line.strip()]
             self.assertEqual(rows[-1]["phase"], "pre_implement")
@@ -308,6 +309,39 @@ class CliTest(unittest.TestCase):
         topic = _topic({"subject": "fix session list timeout", "body": "", "files": ["packages/gateway/src/sessions/store.ts", "packages/browser/src/mcp/client.ts"]})
         self.assertIn("sessions", topic)
         self.assertNotEqual(topic, "general")
+
+    def test_usage_logs_are_sibling_to_registry_not_inside_registry(self):
+        with tempfile.TemporaryDirectory() as td:
+            reg = Path(td) / ".betavibe" / "registry"
+            self.run_cli("--registry", str(reg), "journal", "--miss", "portable lesson missing")
+            self.assertTrue((reg.parent / "usage" / "journal.jsonl").exists())
+            self.assertFalse((reg / "usage").exists())
+
+    def test_personal_registry_is_included_in_recall_and_seed_can_copy(self):
+        with tempfile.TemporaryDirectory() as td:
+            home = Path(td) / "home"
+            repo_reg = Path(td) / "repo" / ".betavibe" / "registry"
+            personal = home / ".betavibe" / "personal"
+            env = {"HOME": str(home), "BETAVIBE_PERSONAL_REGISTRY": str(personal)}
+            self.run_cli(
+                "--registry", str(personal), "capture",
+                "--type", "pitfall",
+                "--title", "Argparse remainder swallows run-exec options",
+                "--summary", "Python argparse REMAINDER can swallow options after a positional command unless flags are parsed before the remainder.",
+                "--tags", "python,cli,argparse",
+                "--tech", "python",
+                "--symptom", "CLI options passed after a command disappeared into the remainder argument.",
+                "--root-cause", "argparse REMAINDER captured later options before command execution saw them.",
+                "--fix", "Place parser options before REMAINDER and document -- separator usage.",
+                "--prevention-signal", "Before changing Python CLI wrappers that forward commands, check argparse REMAINDER placement.",
+                "--verify-trigger", "When adding forwarded command arguments to Python CLIs.",
+                cwd=ROOT,
+            )
+            recall = subprocess.run([sys.executable, "-m", "betavibe", "--registry", str(repo_reg), "recall", "python cli remainder bug", "--no-gbrain"], cwd=ROOT, env={**os.environ, **env}, text=True, capture_output=True, check=True)
+            self.assertIn("Argparse remainder", recall.stdout)
+            seeded = subprocess.run([sys.executable, "-m", "betavibe", "--registry", str(repo_reg), "seed", "--from-personal", "--tags", "python"], cwd=ROOT, env={**os.environ, **env}, text=True, capture_output=True, check=True)
+            self.assertIn("seeded 1 insights", seeded.stdout)
+            self.assertTrue(list((repo_reg / "insights").rglob("INSIGHT.md")))
 
 if __name__ == "__main__":
     unittest.main()

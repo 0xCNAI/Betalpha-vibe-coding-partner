@@ -4,6 +4,7 @@ from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 import json
+from .registry import personal_registry
 
 
 def now() -> str:
@@ -11,7 +12,10 @@ def now() -> str:
 
 
 def usage_root(registry: Path) -> Path:
-    return registry / "usage"
+    # Usage is local observability, not source-of-truth memory. Keep it as a
+    # sibling of the committed registry so `.betavibe/registry` can be synced
+    # without timestamp-heavy usage logs and cross-machine merge conflicts.
+    return registry.parent / "usage"
 
 
 def resolver_log_path(registry: Path) -> Path:
@@ -81,6 +85,7 @@ def summarize_usage(registry: Path) -> dict:
                     pass
     pending = list((registry / "pending").glob("*.json")) if (registry / "pending").exists() else []
     insights = list((registry / "insights").rglob("INSIGHT.md")) if (registry / "insights").exists() else []
+    personal_insights = list((personal_registry() / "insights").rglob("INSIGHT.md")) if (personal_registry() / "insights").exists() else []
     phases = Counter(e.get("phase", "unknown") for e in resolver)
     local_hit_events = sum(1 for e in resolver if int(e.get("local_hits") or 0) > 0)
     gbrain_hit_events = sum(1 for e in resolver if int(e.get("gbrain_hits") or 0) > 0)
@@ -113,6 +118,7 @@ def summarize_usage(registry: Path) -> dict:
         "runtime_failed_and_passed_runs": failed_and_passed,
         "pending_candidates": len(pending),
         "reviewed_insights": len(insights),
+        "personal_portable_insights": len(personal_insights),
     }
 
 
@@ -122,6 +128,7 @@ def format_metrics(summary: dict) -> str:
         "",
         f"- reviewed_insights: {summary['reviewed_insights']}",
         f"- pending_candidates: {summary['pending_candidates']}",
+        f"- personal_portable_insights: {summary['personal_portable_insights']}",
         f"- resolver_calls: {summary['resolver_calls']}",
         f"- resolver_local_hit_events: {summary['resolver_local_hit_events']}",
         f"- resolver_gbrain_hit_events: {summary['resolver_gbrain_hit_events']}",
@@ -139,5 +146,5 @@ def format_metrics(summary: dict) -> str:
     for phase, count in sorted(summary.get("resolver_phases", {}).items()):
         lines.append(f"- {phase}: {count}")
     if summary["reviewed_insights"] < 20:
-        lines.extend(["", "## Cold-start note", "- Registry has fewer than 20 reviewed insights; hit-rate metrics are noisy. Focus on journal_misses / wrong_paths to build the insight backlog."])
+        lines.extend(["", "## Cold-start note", "- Registry has fewer than 20 reviewed insights; hit-rate metrics are noisy. Focus on journal_misses / wrong_paths to build the insight backlog.", "- During cold start, rely on GBrain plus ~/.betavibe/personal portable insights; consider `betavibe seed --from-personal --tags <stack>` to bootstrap repo-local memory."])
     return "\n".join(lines)

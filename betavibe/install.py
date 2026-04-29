@@ -57,8 +57,10 @@ If recall missed a lesson that should have existed, log it cheaply instead of le
 ```
 
 Memory layers:
-- Local registry files are the source of truth across OpenClaw, Claude Code, Codex, Cursor, and other harnesses.
-- GBrain is an optional semantic index. Check with `{prefix}python3 -m betavibe doctor`; if GBrain is missing/unhealthy, continue with the local registry and tell the human how to install/fix GBrain instead of blocking.
+- Repo-local registry files are the source of truth for project-specific lessons.
+- `~/.betavibe/personal` is the strict portable registry for cross-repo lessons only. Keep it small (target <=30 high-value insights) and use it when a lesson applies across stacks/repos.
+- GBrain is an optional semantic federation layer. Check with `{prefix}python3 -m betavibe doctor`; if GBrain is missing/unhealthy, continue with repo-local + personal registries and tell the human how to install/fix GBrain instead of blocking.
+- Placement rule: store an insight where the fix lives. Code change -> source repo registry. Config/cron/env/ops change -> operations repo registry. Truly portable lesson -> personal registry.
 - After promoting reviewed insights, commit the registry so experience travels across devices/harnesses:
 
 ```bash

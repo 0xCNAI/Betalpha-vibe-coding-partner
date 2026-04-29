@@ -8,7 +8,7 @@ from pathlib import Path
 from .gitmine import mine_git
 from .excavate import excavate, write_report as write_excavation_report
 from .models import Insight
-from .registry import init_registry, list_insights, list_pending, resolve_registry, write_insight, write_pending
+from .registry import init_registry, list_insights, list_scoped_insights, list_pending, personal_registry, resolve_registry, write_insight, write_pending
 from .search import search_insights
 from . import gbrain_adapter
 from .install import install_contract as install_agent_contract, install_all
@@ -33,7 +33,7 @@ def cmd_init(args) -> int:
 
 def cmd_advise(args) -> int:
     registry = resolve_registry(args.registry)
-    insights = list_insights(registry)
+    insights = list_scoped_insights(registry, include_personal=not args.no_personal)
     hits = search_insights(insights, args.query, limit=args.limit)
     if args.json:
         print(json.dumps([{"score": s, "path": str(i.path), "title": i.title, "type": i.type, "matched": m, "prevention_signal": i.prevention_signal, "summary": i.summary} for s, i, m in hits], ensure_ascii=False, indent=2))
@@ -382,6 +382,34 @@ def cmd_promote(args) -> int:
 
 
 
+def cmd_seed(args) -> int:
+    registry = resolve_registry(args.registry)
+    source = personal_registry() if args.from_personal else Path(args.from_registry).expanduser().resolve()
+    tags = set(csv(args.tags))
+    tech = set(csv(args.tech))
+    existing = {i.slug for i in list_insights(registry)}
+    copied = []
+    for insight in list_insights(source):
+        if args.limit and len(copied) >= args.limit:
+            break
+        if tags and not tags.intersection(set(insight.tags)):
+            continue
+        if tech and not tech.intersection(set(insight.tech_stack)):
+            continue
+        if insight.slug in existing:
+            continue
+        insight.source = {**insight.source, "seeded_from": str(source), "portable_seed": bool(args.from_personal)}
+        path = write_insight(insight, registry)
+        copied.append(path)
+        existing.add(insight.slug)
+    print(f"seeded {len(copied)} insights from {source} into {registry}")
+    for path in copied:
+        print(f"- {path}")
+    if not copied and not args.tags and not args.tech:
+        print("No insights copied. Add --tags/--tech filters or check the source registry.")
+    return 0
+
+
 def cmd_recall(args) -> int:
     class Obj: pass
     o = Obj()
@@ -391,6 +419,7 @@ def cmd_recall(args) -> int:
     o.limit = args.limit
     o.gbrain_limit = args.gbrain_limit
     o.no_gbrain = args.no_gbrain
+    o.no_personal = args.no_personal
     return cmd_resolve(o)
 
 
@@ -437,7 +466,7 @@ def cmd_metrics(args) -> int:
 
 def cmd_resolve(args) -> int:
     registry = resolve_registry(args.registry)
-    insights = list_insights(registry)
+    insights = list_scoped_insights(registry, include_personal=not getattr(args, "no_personal", False))
     phase_terms = {
         "pre_spec": "spec guardrail decision pattern tool choice architecture migration integration",
         "pre_implement": "pitfall wrong paths fix implementation test deploy config migration",
@@ -499,6 +528,8 @@ def cmd_resolve(args) -> int:
         print("## Verification requirements")
         for item in verification[:8] or ["Add a test/build/run/manual reproduction gate before claiming done."]:
             print(f"- Re-check when: {item}")
+        if not hits and not getattr(args, "no_personal", False):
+            print("- Cold-start fallback: no local/personal reviewed insight matched. If this gap causes a wrong path, record it with `betavibe journal --miss ...`; consider `betavibe seed --from-personal --tags <stack>` for new repos.")
         print("\nAgent instruction: apply these before proceeding. Do not merely mention them.")
     return 0
 
@@ -636,6 +667,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("query")
     p.add_argument("--limit", type=int, default=8)
     p.add_argument("--json", action="store_true")
+    p.add_argument("--no-personal", action="store_true", help="Do not include ~/.betavibe/personal portable insights")
     p.set_defaults(func=cmd_advise)
 
     p = sub.add_parser("capture")
@@ -697,6 +729,15 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--push", action="store_true", help="Push after committing")
     p.set_defaults(func=cmd_sync)
 
+    p = sub.add_parser("seed")
+    src = p.add_mutually_exclusive_group(required=True)
+    src.add_argument("--from", dest="from_registry", help="Source registry path to copy reviewed insights from")
+    src.add_argument("--from-personal", action="store_true", help="Seed from ~/.betavibe/personal")
+    p.add_argument("--tags", default=None, help="Comma-separated tags to copy")
+    p.add_argument("--tech", default=None, help="Comma-separated tech_stack values to copy")
+    p.add_argument("--limit", type=int, default=30)
+    p.set_defaults(func=cmd_seed)
+
     p = sub.add_parser("enforce")
     p.add_argument("--max-age-minutes", type=int, default=240)
     p.add_argument("--require-failed", type=int, default=0, help="Compatibility flag: require at least one failed command in recent runtime evidence")
@@ -710,6 +751,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--limit", type=int, default=5)
     p.add_argument("--gbrain-limit", type=int, default=3)
     p.add_argument("--no-gbrain", action="store_true")
+    p.add_argument("--no-personal", action="store_true", help="Do not include ~/.betavibe/personal portable insights")
     p.set_defaults(func=cmd_recall)
 
     p = sub.add_parser("verify")
@@ -784,6 +826,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--limit", type=int, default=5)
     p.add_argument("--gbrain-limit", type=int, default=3)
     p.add_argument("--no-gbrain", action="store_true")
+    p.add_argument("--no-personal", action="store_true", help="Do not include ~/.betavibe/personal portable insights")
     p.set_defaults(func=cmd_resolve)
 
     p = sub.add_parser("should-capture")

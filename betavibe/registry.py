@@ -6,10 +6,15 @@ import os
 from .models import Insight
 
 DEFAULT_REGISTRY = Path(os.environ.get("BETAVIBE_REGISTRY", "registry"))
+DEFAULT_PERSONAL_REGISTRY = Path(os.environ.get("BETAVIBE_PERSONAL_REGISTRY", "~/.betavibe/personal")).expanduser()
 
 
 def resolve_registry(path: str | Path | None = None) -> Path:
     return Path(path) if path else DEFAULT_REGISTRY
+
+
+def personal_registry() -> Path:
+    return DEFAULT_PERSONAL_REGISTRY
 
 
 def init_registry(registry: Path) -> None:
@@ -43,6 +48,18 @@ def list_insights(registry: Path) -> list[Insight]:
         except Exception as exc:
             print(f"[warn] skipped malformed insight {path}: {exc}")
     return out
+
+
+def list_scoped_insights(registry: Path, include_personal: bool = True) -> list[Insight]:
+    insights = list_insights(registry)
+    if include_personal:
+        seen = {str(i.path) for i in insights if i.path}
+        for insight in list_insights(personal_registry()):
+            if insight.path and str(insight.path) in seen:
+                continue
+            insight.tags = list(dict.fromkeys([*insight.tags, "portable"]))
+            insights.append(insight)
+    return insights
 
 
 def write_pending(candidate: dict, registry: Path) -> Path:
