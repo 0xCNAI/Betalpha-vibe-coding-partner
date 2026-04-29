@@ -20,8 +20,8 @@ Use Betavibe as a low-friction debug immune system, not a logging ritual.
 
 - Before non-trivial spec/design: `{prefix}python3 -m betavibe recall "<task/context>"` (shortcut for `resolve pre_spec`)
 - Before non-trivial implementation: `{prefix}python3 -m betavibe resolve pre_implement --context "<plan/files/risks>"`
-- For meaningful verification commands: `{prefix}python3 -m betavibe verify --task "<task>" --cwd .. -- <test/build/lint/typecheck/smoke>`
-- After painful verified debugging: optionally run `should-capture`, then `{prefix}python3 -m betavibe learn`; promote only with human approval.
+- For meaningful verification commands: `{prefix}python3 -m betavibe verify --task "<task>" --cwd .. -- <test/build/lint/typecheck/smoke>`; same `--task` appends to one run for fail→fix→pass cycles.
+- After painful verified debugging: optionally run `should-capture`, then `{prefix}python3 -m betavibe learn`; `learn` creates pending drafts only — never promote without human approval.
 - If recall missed a lesson that should exist: `{prefix}python3 -m betavibe journal --task "<task>" --miss "<missing lesson>"`
 
 Memory placement: project-specific lessons stay in this repo's `.betavibe/registry`; portable cross-repo lessons stay in `~/.betavibe/personal`; GBrain is optional semantic federation, not the source of truth. Store an insight where the fix lives: code -> source repo, config/cron/env -> ops repo, truly portable -> personal.

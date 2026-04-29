@@ -91,6 +91,16 @@ def summarize_usage(registry: Path) -> dict:
     personal_hit_events = sum(1 for e in resolver if any(h.get("scope") == "personal" for h in e.get("top_local", [])))
     repo_hit_events = sum(1 for e in resolver if any(h.get("scope") == "repo" for h in e.get("top_local", [])))
     gbrain_hit_events = sum(1 for e in resolver if int(e.get("gbrain_hits") or 0) > 0)
+    retrieval_counter: Counter[str] = Counter()
+    for e in resolver:
+        for h in e.get("top_local", []):
+            key = h.get("slug")
+            if not key:
+                path = h.get("path") or ""
+                parts = Path(path).parts if path else ()
+                key = parts[-2] if len(parts) >= 2 and parts[-1] == "INSIGHT.md" else (h.get("title") or path)
+            if key:
+                retrieval_counter[str(key)] += 1
     high_conf = 0
     pass_only = 0
     failed_and_passed = 0
@@ -112,6 +122,8 @@ def summarize_usage(registry: Path) -> dict:
         "resolver_repo_hit_events": repo_hit_events,
         "resolver_personal_hit_events": personal_hit_events,
         "resolver_gbrain_hit_events": gbrain_hit_events,
+        "per_insight_retrieval": retrieval_counter.most_common(10),
+        "insights_recalled_more_than_once": sum(1 for _, count in retrieval_counter.items() if count > 1),
         "journal_entries": len(journal),
         "journal_misses": sum(1 for e in journal if e.get("miss")),
         "journal_wrong_paths": sum(1 for e in journal if e.get("wrong_path")),
@@ -138,6 +150,7 @@ def format_metrics(summary: dict) -> str:
         f"- resolver_repo_hit_events: {summary['resolver_repo_hit_events']}",
         f"- resolver_personal_hit_events: {summary['resolver_personal_hit_events']}",
         f"- resolver_gbrain_hit_events: {summary['resolver_gbrain_hit_events']}",
+        f"- insights_recalled_more_than_once: {summary['insights_recalled_more_than_once']}",
         f"- journal_entries: {summary['journal_entries']}",
         f"- journal_misses: {summary['journal_misses']}",
         f"- journal_wrong_paths: {summary['journal_wrong_paths']}",
@@ -151,6 +164,11 @@ def format_metrics(summary: dict) -> str:
     ]
     for phase, count in sorted(summary.get("resolver_phases", {}).items()):
         lines.append(f"- {phase}: {count}")
+    lines.extend(["", "## Top recalled insights"])
+    for slug, count in summary.get("per_insight_retrieval", [])[:10]:
+        lines.append(f"- {slug}: {count}")
+    if not summary.get("per_insight_retrieval"):
+        lines.append("- none yet")
     if summary["reviewed_insights"] < 20:
         lines.extend(["", "## Cold-start note", "- Registry has fewer than 20 reviewed insights; hit-rate metrics are noisy. Focus on journal_misses / wrong_paths to build the insight backlog.", "- During cold start, rely on GBrain plus ~/.betavibe/personal portable insights; consider `betavibe seed --from-personal --tags <stack>` to bootstrap repo-local memory."])
     return "\n".join(lines)

@@ -386,5 +386,29 @@ class CliTest(unittest.TestCase):
             self.assertTrue((project / "AGENTS.md").exists())
             self.assertFalse((project / "CLAUDE.md").exists())
 
+    def test_metrics_counts_per_insight_retrievals(self):
+        with tempfile.TemporaryDirectory() as td:
+            reg = Path(td) / "registry"
+            self.run_cli(
+                "--registry", str(reg), "capture",
+                "--type", "pitfall",
+                "--title", "OAuth refresh silently kills webhook",
+                "--summary", "OAuth refresh token rotation can silently break webhook delivery unless callback health is revalidated.",
+                "--tags", "oauth,webhook",
+                "--tech", "node",
+                "--symptom", "Webhook stopped receiving events after token refresh.",
+                "--root-cause", "Refresh flow updated credentials without revalidating webhook delivery.",
+                "--fix", "Run webhook self-test after token refresh and fail deployment on callback errors.",
+                "--prevention-signal", "Before changing OAuth refresh logic, run webhook delivery self-test.",
+                "--verify-trigger", "When OAuth refresh, webhook auth, or callback URLs change.",
+            )
+            self.run_cli("--registry", str(reg), "recall", "oauth webhook refresh", "--no-gbrain", "--no-personal")
+            self.run_cli("--registry", str(reg), "recall", "webhook oauth callback", "--no-gbrain", "--no-personal")
+            metrics = json.loads(self.run_cli("--registry", str(reg), "metrics", "--json").stdout)
+            self.assertEqual(metrics["insights_recalled_more_than_once"], 1)
+            self.assertEqual(metrics["per_insight_retrieval"][0][1], 2)
+            text = self.run_cli("--registry", str(reg), "metrics").stdout
+            self.assertIn("Top recalled insights", text)
+
 if __name__ == "__main__":
     unittest.main()

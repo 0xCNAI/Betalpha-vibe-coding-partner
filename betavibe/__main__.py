@@ -512,7 +512,7 @@ def cmd_resolve(args) -> int:
             print("  " + h.snippet.replace("\n", "\n  ")[:500])
         print("")
 
-    local_hit_rows = [{"score": score, "title": insight.title, "type": insight.type, "path": str(insight.path) if insight.path else None, "scope": "personal" if "portable" in insight.tags else "repo"} for score, insight, matched in hits]
+    local_hit_rows = [{"score": score, "slug": insight.slug, "title": insight.title, "type": insight.type, "path": str(insight.path) if insight.path else None, "scope": "personal" if "portable" in insight.tags else "repo"} for score, insight, matched in hits]
     gbrain_hit_rows = [{"slug": h.slug, "score": h.score, "stale": h.stale} for h in gbrain_hits]
     log_resolver_event(registry, phase=args.phase, context=args.context, local_hits=local_hit_rows, gbrain_hits=gbrain_hit_rows, harness=os.environ.get("BETAVIBE_HARNESS"))
 
