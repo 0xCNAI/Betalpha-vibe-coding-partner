@@ -49,5 +49,31 @@ class CliTest(unittest.TestCase):
             self.assertTrue(pending)
             self.assertIn("auth", pending[0]["tags"])
 
+    def test_dogfood_writes_report_and_pending_without_github_or_gbrain(self):
+        with tempfile.TemporaryDirectory() as td:
+            repo = Path(td) / "repo"
+            reg = Path(td) / "registry"
+            report = Path(td) / "dogfood.md"
+            repo.mkdir()
+            subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True)
+            subprocess.run(["git", "config", "user.email", "t@example.com"], cwd=repo, check=True)
+            subprocess.run(["git", "config", "user.name", "t"], cwd=repo, check=True)
+            (repo / "schema_migration.py").write_text("print('v1')\n")
+            subprocess.run(["git", "add", "."], cwd=repo, check=True)
+            subprocess.run(["git", "commit", "-m", "fix database schema migration rollback"], cwd=repo, check=True, capture_output=True)
+
+            out = self.run_cli("--registry", str(reg), "dogfood", str(repo), "--out", str(report)).stdout
+            self.assertIn("dogfood report", out)
+            self.assertTrue(report.exists())
+            text = report.read_text()
+            self.assertIn("# Betavibe Dogfood Report", text)
+            self.assertIn("## Resolver probes", text)
+            self.assertIn("pre_spec", text)
+            self.assertIn("pre_implement", text)
+            self.assertIn("fix database schema migration rollback", text)
+            pending = json.loads(self.run_cli("--registry", str(reg), "pending", "--json").stdout)
+            self.assertTrue(pending)
+            self.assertIn("schema", pending[0]["tags"])
+
 if __name__ == "__main__":
     unittest.main()

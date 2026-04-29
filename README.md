@@ -79,6 +79,14 @@ python3 -m betavibe pending
 python3 -m betavibe promote <pending-id>
 ```
 
+Run the dogfood loop against a real repo and produce a usefulness report:
+
+```bash
+python3 -m betavibe dogfood /path/to/project --out /tmp/betavibe-dogfood.md
+```
+
+`dogfood` mines local git history, writes pending candidates, probes `pre_spec` and `pre_implement` resolver behavior, and emits a markdown report. It does not need GitHub, GBrain, or network access unless `--with-github` is explicitly passed.
+
 ## Insight types
 
 - `pitfall`: hard-won bug / failure mode and verified fix.

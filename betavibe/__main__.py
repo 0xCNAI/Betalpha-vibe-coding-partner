@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
@@ -96,6 +97,122 @@ def cmd_scan_git(args) -> int:
         print("\nTop candidates:")
         for c in candidates[: min(5, args.limit)]:
             print(f"- {c['id']} [{c['score']}] {c['title']} — {', '.join(c['reasons'])}")
+    return 0
+
+
+def _candidate_context(candidates: list[dict], fallback: str) -> str:
+    if not candidates:
+        return fallback
+    lines = []
+    for c in candidates[:3]:
+        reasons = "; ".join(c.get("reasons", [])) or "git history signal"
+        files = ", ".join(c.get("source", {}).get("files", [])[:5])
+        if files:
+            lines.append(f"{c.get('title')} | reasons: {reasons} | files: {files}")
+        else:
+            lines.append(f"{c.get('title')} | reasons: {reasons}")
+    return "\n".join(lines)
+
+
+def _local_resolver_section(phase: str, context: str, insights: list[Insight], limit: int = 5) -> str:
+    phase_terms = {
+        "pre_spec": "spec guardrail decision pattern tool choice architecture migration integration",
+        "pre_implement": "pitfall wrong paths fix implementation test deploy config migration",
+    }
+    hits = search_insights(insights, f"{context} {phase_terms.get(phase, '')}", limit=limit)
+    lines = [f"### {phase}", "", "```text", context, "```", ""]
+    if not hits:
+        lines.extend([
+            "No matching local reviewed insights.",
+            "",
+            "Default verification: add a test/build/run/manual reproduction gate before claiming done.",
+            "",
+        ])
+        return "\n".join(lines)
+    lines.append(f"Relevant local reviewed insights: {len(hits)}")
+    lines.append("")
+    for score, insight, matched in hits:
+        lines.append(f"- **[{insight.type}] {insight.title}** — score {score:.2f}; matched: {', '.join(matched)}")
+        lines.append(f"  - prevention: {insight.prevention_signal}")
+        lines.append(f"  - verify: {insight.verify_trigger}")
+        if insight.path:
+            lines.append(f"  - path: `{insight.path}`")
+    lines.append("")
+    return "\n".join(lines)
+
+
+def cmd_dogfood(args) -> int:
+    registry = resolve_registry(args.registry)
+    init_registry(registry)
+    repo = Path(args.repo).expanduser().resolve()
+    if not (repo / ".git").exists():
+        raise SystemExit(f"not a git repository: {repo}")
+
+    candidates = mine_git(repo, since=args.since, max_commits=args.max_commits, with_github=args.with_github)
+    selected = candidates[: args.limit]
+    for c in selected:
+        write_pending(c, registry)
+
+    insights = list_insights(registry)
+    pending = list_pending(registry)
+    pre_spec_context = args.pre_spec_context or _candidate_context(
+        selected,
+        f"Plan the next change in {repo.name}; check prior decisions, guardrails, risky subsystems, and verification before writing a spec.",
+    )
+    pre_implement_context = args.pre_implement_context or _candidate_context(
+        selected,
+        f"Implement the next change in {repo.name}; check pitfalls, wrong paths, risky files, and required tests before editing.",
+    )
+
+    if args.out:
+        out = Path(args.out).expanduser()
+    else:
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+        out = repo / ".betavibe" / "reports" / f"dogfood-{stamp}.md"
+    if not out.is_absolute():
+        out = (Path.cwd() / out).resolve()
+    out.parent.mkdir(parents=True, exist_ok=True)
+
+    lines = [
+        "# Betavibe Dogfood Report",
+        "",
+        f"- repo: `{repo}`",
+        f"- registry: `{registry}`",
+        f"- local git candidates mined: {len(candidates)}",
+        f"- pending candidates written this run: {len(selected)}",
+        f"- reviewed insights available: {len(insights)}",
+        f"- pending candidates in registry: {len(pending)}",
+        f"- github mining: {'on' if args.with_github else 'off'}",
+        "",
+        "## Top mined candidates",
+        "",
+    ]
+    if selected:
+        for c in selected[:10]:
+            lines.append(f"- `{c['id']}` [{c.get('score')}] {c.get('title')} — {'; '.join(c.get('reasons', []))}")
+    else:
+        lines.append("No candidates found from local git history. This can be fine for clean or tiny repos; usefulness should be tested on a repo with real failures.")
+    lines.extend([
+        "",
+        "## Resolver probes",
+        "",
+        _local_resolver_section("pre_spec", pre_spec_context, insights, limit=args.resolve_limit),
+        _local_resolver_section("pre_implement", pre_implement_context, insights, limit=args.resolve_limit),
+        "## Readout",
+        "",
+    ])
+    if selected and insights:
+        lines.append("This repo has mined candidates and reviewed insights; compare the resolver probes against a no-memory baseline before trusting usefulness.")
+    elif selected:
+        lines.append("Candidates were mined, but reviewed insights are empty. Promote reviewed lessons before expecting resolver impact.")
+    else:
+        lines.append("No mined candidates. Try a larger `--max-commits`, an older repo, or `--with-github` if GitHub auth is available.")
+    lines.append("")
+    out.write_text("\n".join(lines), encoding="utf-8")
+
+    print(f"dogfood report: {out}")
+    print(f"candidates mined: {len(candidates)}; written: {len(selected)}")
+    print(f"reviewed insights: {len(insights)}; pending: {len(pending)}")
     return 0
 
 
@@ -375,6 +492,18 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--limit", type=int, default=50)
     p.add_argument("--with-github", action="store_true", help="reserved; local git mining works without GitHub API")
     p.set_defaults(func=cmd_scan_git)
+
+    p = sub.add_parser("dogfood")
+    p.add_argument("repo", help="Git repository to mine and probe")
+    p.add_argument("--since", default=None)
+    p.add_argument("--max-commits", type=int, default=300)
+    p.add_argument("--limit", type=int, default=20, help="Maximum pending candidates to write from this run")
+    p.add_argument("--resolve-limit", type=int, default=5, help="Maximum reviewed insights per resolver probe")
+    p.add_argument("--with-github", action="store_true", help="Also mine GitHub PR metadata when gh auth is available")
+    p.add_argument("--out", help="Markdown report path; defaults to <repo>/.betavibe/reports/dogfood-<UTC timestamp>.md")
+    p.add_argument("--pre-spec-context", help="Override generated pre_spec resolver probe context")
+    p.add_argument("--pre-implement-context", help="Override generated pre_implement resolver probe context")
+    p.set_defaults(func=cmd_dogfood)
 
     p = sub.add_parser("pending")
     p.add_argument("--limit", type=int, default=20)
