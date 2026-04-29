@@ -10,6 +10,9 @@ import subprocess
 from .gitmine import git_log, infer_tags, infer_tech
 
 FIX_RE = re.compile(r"\b(fix|fixed|hotfix|bug|regression|broken|fail|failure|permission-denied|timeout|crash|rollback|revert|build blockers?)\b", re.I)
+# Historical/cross-domain keyword fallback. `_path_topics()` is the primary
+# adaptive topic source; keep this regex broad but treat it as replaceable by
+# future per-project `.betavibe/config.toml` topic hints.
 TOPIC_RE = re.compile(r"(auth|login|firebase|firestore|rules|functions?|typescript|build|schema|migration|receive|picker|picking|hq|home|hooks?|maestro|test|android|expo|batch|catalog|supplement|delivery|replenishment|submodule|gateway|sessions?|browser|mcp|discord|telegram|cron|memory|agent|resolver|runtime|gbrain|registry|cli|api|config|oauth|webhook|database|cache|sync|deploy|worker|queue|mobile|ios|electron|vite|react)", re.I)
 
 

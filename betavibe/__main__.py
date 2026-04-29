@@ -487,8 +487,10 @@ def cmd_resolve(args) -> int:
     tool_notes = []
     verification = []
     for score, insight, matched in hits:
-        print(f"## [{insight.type}] {insight.title}")
-        print(f"matched: {', '.join(matched)} | score: {score:.2f}")
+        scope = "personal" if "portable" in insight.tags else "repo"
+        portable = " [portable]" if scope == "personal" else ""
+        print(f"## [{insight.type}]{portable} {insight.title}")
+        print(f"matched: {', '.join(matched)} | score: {score:.2f} | source: {scope}")
         print(f"summary: {insight.summary}")
         print(f"ACTION / prevention_signal: {insight.prevention_signal}")
         if insight.path:
@@ -510,7 +512,7 @@ def cmd_resolve(args) -> int:
             print("  " + h.snippet.replace("\n", "\n  ")[:500])
         print("")
 
-    local_hit_rows = [{"score": score, "title": insight.title, "type": insight.type, "path": str(insight.path) if insight.path else None} for score, insight, matched in hits]
+    local_hit_rows = [{"score": score, "title": insight.title, "type": insight.type, "path": str(insight.path) if insight.path else None, "scope": "personal" if "portable" in insight.tags else "repo"} for score, insight, matched in hits]
     gbrain_hit_rows = [{"slug": h.slug, "score": h.score, "stale": h.stale} for h in gbrain_hits]
     log_resolver_event(registry, phase=args.phase, context=args.context, local_hits=local_hit_rows, gbrain_hits=gbrain_hit_rows, harness=os.environ.get("BETAVIBE_HARNESS"))
 
@@ -530,6 +532,8 @@ def cmd_resolve(args) -> int:
             print(f"- Re-check when: {item}")
         if not hits and not getattr(args, "no_personal", False):
             print("- Cold-start fallback: no local/personal reviewed insight matched. If this gap causes a wrong path, record it with `betavibe journal --miss ...`; consider `betavibe seed --from-personal --tags <stack>` for new repos.")
+        elif hits and all("portable" in insight.tags for _, insight, _ in hits):
+            print("- Cold-start fallback: all reviewed hits came from the personal portable registry; repo-local memory has no matching lesson yet. If this should become project-specific, run `betavibe seed --from-personal --tags <stack>` or capture a repo-local version.")
         print("\nAgent instruction: apply these before proceeding. Do not merely mention them.")
     return 0
 

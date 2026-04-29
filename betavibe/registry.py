@@ -53,12 +53,13 @@ def list_insights(registry: Path) -> list[Insight]:
 def list_scoped_insights(registry: Path, include_personal: bool = True) -> list[Insight]:
     insights = list_insights(registry)
     if include_personal:
-        seen = {str(i.path) for i in insights if i.path}
+        seen_slugs = {i.slug for i in insights}
         for insight in list_insights(personal_registry()):
-            if insight.path and str(insight.path) in seen:
+            if insight.slug in seen_slugs:
                 continue
             insight.tags = list(dict.fromkeys([*insight.tags, "portable"]))
             insights.append(insight)
+            seen_slugs.add(insight.slug)
     return insights
 
 

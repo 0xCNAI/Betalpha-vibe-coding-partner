@@ -88,6 +88,8 @@ def summarize_usage(registry: Path) -> dict:
     personal_insights = list((personal_registry() / "insights").rglob("INSIGHT.md")) if (personal_registry() / "insights").exists() else []
     phases = Counter(e.get("phase", "unknown") for e in resolver)
     local_hit_events = sum(1 for e in resolver if int(e.get("local_hits") or 0) > 0)
+    personal_hit_events = sum(1 for e in resolver if any(h.get("scope") == "personal" for h in e.get("top_local", [])))
+    repo_hit_events = sum(1 for e in resolver if any(h.get("scope") == "repo" for h in e.get("top_local", [])))
     gbrain_hit_events = sum(1 for e in resolver if int(e.get("gbrain_hits") or 0) > 0)
     high_conf = 0
     pass_only = 0
@@ -107,6 +109,8 @@ def summarize_usage(registry: Path) -> dict:
         "resolver_calls": len(resolver),
         "resolver_phases": dict(phases),
         "resolver_local_hit_events": local_hit_events,
+        "resolver_repo_hit_events": repo_hit_events,
+        "resolver_personal_hit_events": personal_hit_events,
         "resolver_gbrain_hit_events": gbrain_hit_events,
         "journal_entries": len(journal),
         "journal_misses": sum(1 for e in journal if e.get("miss")),
@@ -131,6 +135,8 @@ def format_metrics(summary: dict) -> str:
         f"- personal_portable_insights: {summary['personal_portable_insights']}",
         f"- resolver_calls: {summary['resolver_calls']}",
         f"- resolver_local_hit_events: {summary['resolver_local_hit_events']}",
+        f"- resolver_repo_hit_events: {summary['resolver_repo_hit_events']}",
+        f"- resolver_personal_hit_events: {summary['resolver_personal_hit_events']}",
         f"- resolver_gbrain_hit_events: {summary['resolver_gbrain_hit_events']}",
         f"- journal_entries: {summary['journal_entries']}",
         f"- journal_misses: {summary['journal_misses']}",

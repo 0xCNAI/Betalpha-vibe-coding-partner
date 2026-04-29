@@ -339,9 +339,15 @@ class CliTest(unittest.TestCase):
             )
             recall = subprocess.run([sys.executable, "-m", "betavibe", "--registry", str(repo_reg), "recall", "python cli remainder bug", "--no-gbrain"], cwd=ROOT, env={**os.environ, **env}, text=True, capture_output=True, check=True)
             self.assertIn("Argparse remainder", recall.stdout)
+            self.assertIn("[portable]", recall.stdout)
+            metrics = subprocess.run([sys.executable, "-m", "betavibe", "--registry", str(repo_reg), "metrics", "--json"], cwd=ROOT, env={**os.environ, **env}, text=True, capture_output=True, check=True)
+            self.assertEqual(json.loads(metrics.stdout)["resolver_personal_hit_events"], 1)
             seeded = subprocess.run([sys.executable, "-m", "betavibe", "--registry", str(repo_reg), "seed", "--from-personal", "--tags", "python"], cwd=ROOT, env={**os.environ, **env}, text=True, capture_output=True, check=True)
             self.assertIn("seeded 1 insights", seeded.stdout)
             self.assertTrue(list((repo_reg / "insights").rglob("INSIGHT.md")))
+            recall_after_seed = subprocess.run([sys.executable, "-m", "betavibe", "--registry", str(repo_reg), "recall", "python cli remainder bug", "--no-gbrain"], cwd=ROOT, env={**os.environ, **env}, text=True, capture_output=True, check=True)
+            self.assertEqual(recall_after_seed.stdout.count("## [pitfall]"), 1, recall_after_seed.stdout)
+            self.assertNotIn("[portable]", recall_after_seed.stdout)
 
 if __name__ == "__main__":
     unittest.main()
