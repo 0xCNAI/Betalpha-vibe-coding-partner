@@ -140,6 +140,84 @@ def cmd_promote(args) -> int:
     return 0
 
 
+
+def cmd_resolve(args) -> int:
+    registry = resolve_registry(args.registry)
+    insights = list_insights(registry)
+    phase_terms = {
+        "pre_spec": "spec guardrail decision pattern tool choice architecture migration integration",
+        "pre_implement": "pitfall wrong paths fix implementation test deploy config migration",
+        "post_debug": "pitfall bug fix root cause wrong paths error regression timeout failure",
+        "post_session": "decision pattern tool choice spec guardrail reusable lesson",
+    }
+    query = f"{args.context} {phase_terms.get(args.phase, '')}"
+    hits = search_insights(insights, query, limit=args.limit)
+    print(f"resolver: {args.phase}")
+    print(f"context: {args.context}")
+    print("")
+    if not hits:
+        print("No matching reviewed insights. Continue, but capture any hard-won lesson if debugging gets painful.")
+        if args.phase in ("pre_spec", "pre_implement"):
+            print("Checklist: define verification before implementation; prefer stable tools over clever one-offs.")
+        return 0
+    print(f"Relevant reviewed insights: {len(hits)}\n")
+    for score, insight, matched in hits:
+        print(f"## [{insight.type}] {insight.title}")
+        print(f"matched: {', '.join(matched)} | score: {score:.2f}")
+        print(f"summary: {insight.summary}")
+        print(f"ACTION / prevention_signal: {insight.prevention_signal}")
+        if insight.path:
+            print(f"read: {insight.path}")
+        print("")
+    if args.phase in ("pre_spec", "pre_implement"):
+        print("Agent instruction: apply the relevant prevention_signal items before proceeding. Do not merely mention them.")
+    return 0
+
+
+def cmd_should_capture(args) -> int:
+    score = 0
+    reasons = []
+    if args.debug_minutes >= 20:
+        score += 3
+        reasons.append(f"debugging took {args.debug_minutes} minutes")
+    elif args.debug_minutes >= 10:
+        score += 1
+        reasons.append(f"debugging took {args.debug_minutes} minutes")
+    if args.attempts >= 2:
+        score += 3
+        reasons.append(f"{args.attempts} wrong attempts")
+    elif args.attempts == 1:
+        score += 1
+        reasons.append("one wrong attempt")
+    if args.had_error_log:
+        score += 2
+        reasons.append("specific error/log/failed behavior observed")
+    if args.final_fix_verified:
+        score += 3
+        reasons.append("final fix verified")
+    risky_words = ["auth", "oauth", "token", "billing", "deploy", "ci", "cron", "database", "migration", "schema", "config", "external api", "webhook", "data loss"]
+    if any(w in args.context.lower() for w in risky_words):
+        score += 2
+        reasons.append("risky subsystem")
+    if args.affects_spec_or_tool_choice:
+        score += 2
+        reasons.append("would affect future spec/tool choice")
+
+    print(f"capture_score: {score}")
+    for r in reasons:
+        print(f"- {r}")
+    print("")
+    if score >= 7 and args.final_fix_verified:
+        print("CAPTURE_RECOMMENDED")
+        print("Ask the human for approval, then capture symptom/root cause/wrong paths/fix/prevention_signal/verify_trigger.")
+    elif score >= 7:
+        print("CAPTURE_AFTER_VERIFICATION")
+        print("This seems important, but do not save until the final fix is verified.")
+    else:
+        print("DO_NOT_CAPTURE_YET")
+        print("Keep notes if useful, but avoid polluting the reviewed registry.")
+    return 0
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="betavibe", description="Betalpha Vibe Coding Partner CLI")
     parser.add_argument("--registry", help="Registry path; defaults to BETAVIBE_REGISTRY or ./registry")
@@ -200,6 +278,21 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--prevention-signal")
     p.add_argument("--verify-trigger")
     p.set_defaults(func=cmd_promote)
+
+    p = sub.add_parser("resolve")
+    p.add_argument("phase", choices=["pre_spec", "pre_implement", "post_debug", "post_session"])
+    p.add_argument("--context", required=True)
+    p.add_argument("--limit", type=int, default=5)
+    p.set_defaults(func=cmd_resolve)
+
+    p = sub.add_parser("should-capture")
+    p.add_argument("--debug-minutes", type=int, default=0)
+    p.add_argument("--attempts", type=int, default=0)
+    p.add_argument("--had-error-log", action="store_true")
+    p.add_argument("--final-fix-verified", action="store_true")
+    p.add_argument("--affects-spec-or-tool-choice", action="store_true")
+    p.add_argument("--context", required=True)
+    p.set_defaults(func=cmd_should_capture)
     return parser
 
 

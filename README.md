@@ -1,72 +1,96 @@
 # Betalpha Vibe Coding Partner
 
-A portable development-insight registry for vibe-coding teams.
+Drop this folder into a project and coding agents should automatically reuse and capture hard-won development insights.
 
-It helps OpenClaw, Claude Code, Codex, Cowork, and future coding tools reuse hard-won engineering lessons before writing specs or code.
+It is designed for OpenClaw, Claude Code, Codex, Cowork, Cursor, and any tool that reads project instruction files.
 
-## What it does
+## What you should experience
 
-1. **Before work**: `advise` searches past pitfalls, decisions, patterns, and tool choices relevant to the current task.
-2. **After work**: `capture` writes reviewed insights into a durable markdown registry.
-3. **From existing history**: `scan-git` mines a project’s git / GitHub evolution for candidate insights: fixes, reverts, migrations, regressions, CI failures, risky files, and repeated churn.
-4. **Across agents**: instructions in `AGENTS.md`, `CLAUDE.md`, `.codex/AGENTS.md`, and `.claude/CLAUDE.md` teach tools how to use the same registry.
+You should **not** need to remember commands.
 
-This is intentionally **not silent auto-learning**. The system can draft candidates automatically, but reviewed insights are promoted explicitly. Bad memory is worse than missing memory.
+A good agent will:
 
-## Quick start
+1. **Before writing a spec**: search prior insights and add relevant guardrails.
+2. **Before implementation**: check known pitfalls / wrong paths / tool-choice lessons.
+3. **After painful debugging**: notice the session is worth capturing, ask you for approval, then save a structured insight.
+4. **When onboarding old projects**: scan git / GitHub history and produce reviewable candidate insights.
 
-```bash
-# From this repo
-python3 -m betavibe init
-python3 -m betavibe advise "oauth line bot refresh token"
-python3 -m betavibe scan-git /path/to/project --since "90 days ago"
-python3 -m betavibe pending
-python3 -m betavibe promote <pending-id>
-```
+## Install into a project
 
-Default registry: `./registry`. Use `--registry ~/.betalpha-vibe/registry` for a shared central registry.
+Copy this whole folder into your project, or keep it as a shared submodule / folder.
 
-## Recommended setup for real use
-
-Use one shared registry and mount/copy this package into projects:
+Recommended shared registry:
 
 ```bash
 export BETAVIBE_REGISTRY="$HOME/.betalpha-vibe/registry"
 python3 -m betavibe init --registry "$BETAVIBE_REGISTRY"
-python3 -m betavibe scan-git ~/code/my-project --registry "$BETAVIBE_REGISTRY"
-python3 -m betavibe advise "new auth integration" --registry "$BETAVIBE_REGISTRY"
+```
+
+If no shared registry is configured, it uses local `registry/`.
+
+## Agent-facing contract
+
+Agents should read `AGENTS.md` and use resolver commands automatically:
+
+```bash
+python3 -m betavibe resolve pre_spec --context "<task>"
+python3 -m betavibe resolve pre_implement --context "<plan and files>"
+python3 -m betavibe should-capture --debug-minutes 35 --attempts 3 --had-error-log --final-fix-verified --context "<bug summary>"
+```
+
+If capture is recommended, the agent asks you for approval in chat, then writes the insight.
+
+## Human-facing commands, only when needed
+
+Check relevant insights:
+
+```bash
+python3 -m betavibe advise "oauth line bot refresh token"
+```
+
+Capture a reviewed lesson:
+
+```bash
+python3 -m betavibe capture \
+  --type pitfall \
+  --title "LINE OAuth token refresh silently kills webhook" \
+  --summary "Token rotation caused webhook delivery to stop until self-test revalidation was added." \
+  --tags "oauth,line-bot,webhook" \
+  --tech "node,line" \
+  --symptom "Webhook stopped receiving events after token refresh." \
+  --root-cause "Refresh flow updated credentials without revalidating delivery." \
+  --wrong-paths "Rotating only the token did not prove webhook delivery still worked." \
+  --fix "Add webhook self-test after token refresh and fail deploy if it does not pass." \
+  --prevention-signal "Before deploying any LINE OAuth refresh flow, add or run webhook delivery self-test." \
+  --verify-trigger "When LINE Messaging API auth behavior changes."
+```
+
+Scan a project’s evolution for candidate insights:
+
+```bash
+python3 -m betavibe scan-git /path/to/project --with-github --since "1 year ago"
+python3 -m betavibe pending
+python3 -m betavibe promote <pending-id>
 ```
 
 ## Insight types
 
-- `pitfall`: painful bug / regression / failure mode with a verified fix.
-- `decision`: choice among options, including accepted trade-offs.
-- `pattern`: reusable implementation or delivery pattern.
+- `pitfall`: hard-won bug / failure mode and verified fix.
+- `decision`: choice among options and accepted trade-offs.
+- `pattern`: reusable implementation / delivery pattern.
 - `tool_choice`: when to use OpenClaw / Claude Code / Codex / Cowork / local scripts / browser / APIs.
-- `spec_guardrail`: checklist item that should appear before implementation starts.
+- `spec_guardrail`: checklist item that should shape future specs.
 
-## Agent contract
+## Why approval is required
 
-Before non-trivial spec or implementation:
+Bad memory is worse than missing memory. Git history and agents can draft candidates, but only reviewed insights should enter `registry/insights/`.
 
-```bash
-python3 -m betavibe advise "<task keywords>" --registry "$BETAVIBE_REGISTRY"
-```
+## Key files
 
-After tricky work:
-
-```bash
-python3 -m betavibe capture --type pitfall --title "..." --symptom "..." --root-cause "..." --fix "..." --prevention-signal "..."
-```
-
-When onboarding an existing project:
-
-```bash
-python3 -m betavibe scan-git /path/to/project --with-github
-python3 -m betavibe pending
-python3 -m betavibe promote <id>
-```
-
-## Why markdown
-
-Markdown keeps the registry readable by every agent. The CLI adds validation, search, and history mining; the source of truth remains plain files.
+- `AGENTS.md` — main drop-in instructions for all agents.
+- `CLAUDE.md`, `.claude/CLAUDE.md` — Claude Code entrypoints.
+- `.codex/AGENTS.md` — Codex entrypoint.
+- `COWORK.md` — Cowork-readable guidance.
+- `betavibe/` — resolver CLI.
+- `registry/insights/` — reviewed insight database.
+- `registry/pending/` — auto-mined candidates awaiting review.
