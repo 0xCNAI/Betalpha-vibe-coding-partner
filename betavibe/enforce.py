@@ -2,7 +2,10 @@ from __future__ import annotations
 
 from pathlib import Path
 import json
+import re
 import time
+
+RISKY_COMMIT_RE = re.compile(r"\b(fix|bug|regression|hotfix|broken|failing|failure|crash|rollback|revert|auth|migration|schema|deploy|permission|security|rules|build|ci)\b", re.I)
 
 
 def _commands(events_path: Path) -> list[dict]:
@@ -51,10 +54,21 @@ def latest_valid_run(registry: Path, max_age_minutes: int = 240) -> dict | None:
     return candidates[0]
 
 
-def check_runtime_required(registry: Path, max_age_minutes: int = 240, require_failed: bool = False) -> tuple[bool, str]:
+def commit_message_requires_failed(message: str | None) -> bool:
+    return bool(message and RISKY_COMMIT_RE.search(message))
+
+
+def check_runtime_required(registry: Path, max_age_minutes: int = 240, require_failed: bool = False, mode: str = "pass", commit_message: str | None = None) -> tuple[bool, str]:
+    if mode not in {"pass", "strict", "auto"}:
+        return False, f"invalid Betavibe enforce mode: {mode}"
+    if mode == "strict":
+        require_failed = True
+    elif mode == "auto":
+        require_failed = commit_message_requires_failed(commit_message)
     run = latest_valid_run(registry, max_age_minutes=max_age_minutes)
     if not run:
         return False, "No recent Betavibe runtime capture run with passing verification was found."
     if require_failed and not run["has_failed"]:
-        return False, f"Recent Betavibe run {run['id']} has passing verification but no failed-command evidence."
-    return True, f"Betavibe runtime evidence found: {run['id']} ({run['commands']} captured commands)."
+        reason = "commit message looks like bugfix/high-risk work" if mode == "auto" else "strict mode is enabled"
+        return False, f"Recent Betavibe run {run['id']} has passing verification but no failed-command evidence ({reason})."
+    return True, f"Betavibe runtime evidence found: {run['id']} ({run['commands']} captured commands; failed evidence: {'yes' if run['has_failed'] else 'no'})."

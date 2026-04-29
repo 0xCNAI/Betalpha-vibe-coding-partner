@@ -265,7 +265,15 @@ def cmd_doctor(args) -> int:
 
 def cmd_enforce(args) -> int:
     registry = resolve_registry(args.registry)
-    ok, message = check_runtime_required(registry, max_age_minutes=args.max_age_minutes, require_failed=bool(args.require_failed))
+    commit_message = args.commit_message
+    if args.commit_message_file:
+        try:
+            commit_message = Path(args.commit_message_file).read_text(encoding="utf-8")
+        except OSError as exc:
+            print(f"Could not read commit message file: {exc}")
+            return 1
+    mode = args.mode or ("strict" if args.require_failed else "pass")
+    ok, message = check_runtime_required(registry, max_age_minutes=args.max_age_minutes, require_failed=bool(args.require_failed), mode=mode, commit_message=commit_message)
     print(message)
     return 0 if ok else 1
 
@@ -499,7 +507,7 @@ def cmd_install(args) -> int:
     project = Path(args.project).expanduser().resolve()
     registry = resolve_registry(args.registry)
     init_registry(registry)
-    result = install_all(project, pack_path=args.pack_path, enforce_runtime=args.enforce_runtime, require_failed=not args.allow_pass_only)
+    result = install_all(project, pack_path=args.pack_path, enforce_runtime=args.enforce_runtime, strict_runtime=args.strict_runtime)
     print(f"initialized registry: {registry}")
     for section, paths in result.items():
         if paths:
@@ -633,7 +641,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("enforce")
     p.add_argument("--max-age-minutes", type=int, default=240)
-    p.add_argument("--require-failed", type=int, default=0, help="Require at least one failed command in recent runtime evidence")
+    p.add_argument("--require-failed", type=int, default=0, help="Compatibility flag: require at least one failed command in recent runtime evidence")
+    p.add_argument("--mode", choices=["pass", "strict", "auto"], default=None, help="pass=require passing verification only; strict=failed+passed; auto=strict only for bugfix/high-risk commit messages")
+    p.add_argument("--commit-message", default=None, help="Commit message text for --mode auto")
+    p.add_argument("--commit-message-file", default=None, help="Commit message file path for git commit-msg hook")
     p.set_defaults(func=cmd_enforce)
 
     p = sub.add_parser("run-start")
@@ -701,8 +712,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--project", required=True, help="Project root to install root contract, skills, hooks, and registry into")
     p.add_argument("--pack-path", default="Betalpha-vibe-coding-partner", help="Path from project root to this Betavibe pack")
     p.add_argument("--self-test", action="store_true", help="Run install self-test after installation")
-    p.add_argument("--enforce-runtime", action="store_true", help="Install a git pre-commit hook that blocks commits without recent Betavibe runtime evidence")
-    p.add_argument("--allow-pass-only", action="store_true", help="With --enforce-runtime, allow passing verification without failed-command evidence. Not recommended for bugfix vibecoding.")
+    p.add_argument("--enforce-runtime", action="store_true", help="Install git hooks: pre-commit requires recent passing verification; commit-msg requires failed evidence only for bugfix/high-risk messages")
+    p.add_argument("--strict-runtime", action="store_true", help="With --enforce-runtime, require failed+passing evidence for every commit. Usually too heavy; use only for focused debugging drills.")
     p.set_defaults(func=cmd_install)
 
     p = sub.add_parser("self-test")

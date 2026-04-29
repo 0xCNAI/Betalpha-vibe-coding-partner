@@ -28,6 +28,16 @@ Before non-trivial implementation, run:
 {prefix}python3 -m betavibe resolve pre_implement --context "<implementation plan and touched files>"
 ```
 
+During implementation, use Betavibe as a lightweight evidence wrapper for meaningful verification commands. Do not record every shell command. Record tests/build/lint/typecheck/deploy/emulator/smoke checks that prove or disprove the change:
+
+```bash
+RUN_ID=$({prefix}python3 -m betavibe run-start --task "<task>" --harness "<harness>" --repo ..)
+{prefix}python3 -m betavibe run-exec "$RUN_ID" --cwd .. -- <test-build-lint-or-smoke-command>
+{prefix}python3 -m betavibe run-finish "$RUN_ID" --repo ..
+```
+
+If you hit a bug/regression, preserve the failing command evidence before fixing when feasible, then append the passing verification to the same run. Do not intentionally break working code just to satisfy evidence unless the commit gate explicitly asks and no original failure was captured.
+
 After a painful debugging session, run:
 
 ```bash
@@ -150,59 +160,87 @@ def write_gbrain_status(project: Path) -> list[Path]:
     return []
 
 
-def install_git_enforcement(project: Path, pack_path: str = "Betalpha-vibe-coding-partner", require_failed: bool = True) -> list[Path]:
+def install_git_enforcement(project: Path, pack_path: str = "Betalpha-vibe-coding-partner", strict_runtime: bool = False) -> list[Path]:
     git_dir = project / ".git"
     if not git_dir.exists():
         return []
-    hook = git_dir / "hooks" / "pre-commit"
-    marker_start = "# BETAVIBE_PRE_COMMIT_START"
-    marker_end = "# BETAVIBE_PRE_COMMIT_END"
-    require_failed_value = "1" if require_failed else "0"
-    block = f'''{marker_start}
-# Betavibe runtime-capture enforcement. Installed by Betalpha Vibe Coding Partner.
+    changed: list[Path] = []
+    pre_commit = git_dir / "hooks" / "pre-commit"
+    commit_msg = git_dir / "hooks" / "commit-msg"
+    pre_marker_start = "# BETAVIBE_PRE_COMMIT_START"
+    pre_marker_end = "# BETAVIBE_PRE_COMMIT_END"
+    msg_marker_start = "# BETAVIBE_COMMIT_MSG_START"
+    msg_marker_end = "# BETAVIBE_COMMIT_MSG_END"
+    strict_flag = "strict" if strict_runtime else "pass"
+    pre_block = f'''{pre_marker_start}
+# Betavibe lightweight verification gate. Installed by Betalpha Vibe Coding Partner.
 PROJECT_ROOT="$(git rev-parse --show-toplevel)"
 REGISTRY="$PROJECT_ROOT/.betavibe/registry"
 PACK="$PROJECT_ROOT/{pack_path}"
 if [ -d "$PACK" ]; then
   cd "$PACK"
-  python3 -m betavibe --registry "$REGISTRY" enforce --max-age-minutes 240 --require-failed {require_failed_value}
+  python3 -m betavibe --registry "$REGISTRY" enforce --max-age-minutes 240 --mode {strict_flag}
   STATUS=$?
   cd "$PROJECT_ROOT"
   if [ "$STATUS" -ne 0 ]; then
     cat <<'EOF'
 
-Betavibe blocked this commit because valid runtime capture evidence was not found.
+Betavibe blocked this commit because no recent passing verification was captured.
 
-Strict mode requires BOTH:
-1. a captured failing command (for example the failing pytest before the fix)
-2. a later captured passing verification command
-
-Before committing non-trivial code changes, run:
+Run your normal test/build/lint/typecheck command through Betavibe once, then retry:
 
   RUN_ID=$(cd Betalpha-vibe-coding-partner && python3 -m betavibe --registry ../.betavibe/registry run-start --task "<task>" --harness codex --repo ..)
-  cd Betalpha-vibe-coding-partner && python3 -m betavibe --registry ../.betavibe/registry run-exec "$RUN_ID" --cwd .. -- <failing-or-verification-command>
-  cd Betalpha-vibe-coding-partner && python3 -m betavibe --registry ../.betavibe/registry run-exec "$RUN_ID" --cwd .. -- <passing-verification-command>
+  cd Betalpha-vibe-coding-partner && python3 -m betavibe --registry ../.betavibe/registry run-exec "$RUN_ID" --cwd .. -- <verification-command>
   cd Betalpha-vibe-coding-partner && python3 -m betavibe --registry ../.betavibe/registry run-finish "$RUN_ID" --repo ..
 
-Then retry git commit.
+For bugfix/regression/high-risk commits, the commit-msg hook may additionally require failed-command evidence.
 EOF
     exit "$STATUS"
   fi
 fi
-{marker_end}'''
-    old = hook.read_text(encoding="utf-8") if hook.exists() else "#!/usr/bin/env bash\nset -uo pipefail\n"
-    if marker_start in old and marker_end in old:
-        before = old.split(marker_start, 1)[0].rstrip()
-        after = old.split(marker_end, 1)[1].lstrip()
-        new = before + "\n" + block + "\n" + after
-    else:
-        new = old.rstrip() + "\n\n" + block + "\n"
-    if new != old:
-        hook.parent.mkdir(parents=True, exist_ok=True)
-        hook.write_text(new, encoding="utf-8")
-        hook.chmod(0o755)
-        return [hook]
-    return []
+{pre_marker_end}'''
+    msg_block = f'''{msg_marker_start}
+# Betavibe risk-aware bugfix gate. Installed by Betalpha Vibe Coding Partner.
+PROJECT_ROOT="$(git rev-parse --show-toplevel)"
+REGISTRY="$PROJECT_ROOT/.betavibe/registry"
+PACK="$PROJECT_ROOT/{pack_path}"
+MSG_FILE="$1"
+case "$MSG_FILE" in
+  /*) ;;
+  *) MSG_FILE="$PROJECT_ROOT/$MSG_FILE" ;;
+esac
+if [ -d "$PACK" ] && [ -f "$MSG_FILE" ]; then
+  cd "$PACK"
+  python3 -m betavibe --registry "$REGISTRY" enforce --max-age-minutes 240 --mode auto --commit-message-file "$MSG_FILE"
+  STATUS=$?
+  cd "$PROJECT_ROOT"
+  if [ "$STATUS" -ne 0 ]; then
+    cat <<'EOF'
+
+Betavibe blocked this bugfix/high-risk commit because it has passing verification but no captured failing-command evidence.
+
+This only applies when the commit message looks like bugfix/regression/auth/migration/schema/deploy/security work.
+If this is genuinely not a bugfix/high-risk commit, rewrite the commit message more accurately.
+If it is a bugfix, capture the original failure and the later passing verification in the same Betavibe run.
+EOF
+    exit "$STATUS"
+  fi
+fi
+{msg_marker_end}'''
+    for hook, start, end, block in [(pre_commit, pre_marker_start, pre_marker_end, pre_block), (commit_msg, msg_marker_start, msg_marker_end, msg_block)]:
+        old = hook.read_text(encoding="utf-8") if hook.exists() else "#!/usr/bin/env bash\nset -uo pipefail\n"
+        if start in old and end in old:
+            before = old.split(start, 1)[0].rstrip()
+            after = old.split(end, 1)[1].lstrip()
+            new = before + "\n" + block + "\n" + after
+        else:
+            new = old.rstrip() + "\n\n" + block + "\n"
+        if new != old:
+            hook.parent.mkdir(parents=True, exist_ok=True)
+            hook.write_text(new, encoding="utf-8")
+            hook.chmod(0o755)
+            changed.append(hook)
+    return changed
 
 
 def install_hooks(project: Path, pack_path: str = "Betalpha-vibe-coding-partner") -> list[Path]:
@@ -239,7 +277,7 @@ python3 -m betavibe should-capture "$@"
     return changed
 
 
-def install_all(project: Path, pack_path: str = "Betalpha-vibe-coding-partner", enforce_runtime: bool = False, require_failed: bool = True) -> dict[str, list[Path]]:
+def install_all(project: Path, pack_path: str = "Betalpha-vibe-coding-partner", enforce_runtime: bool = False, strict_runtime: bool = False) -> dict[str, list[Path]]:
     result = {
         "contract": install_contract(project, pack_path),
         "skill": install_skill(project),
@@ -247,5 +285,5 @@ def install_all(project: Path, pack_path: str = "Betalpha-vibe-coding-partner", 
         "gbrain_status": write_gbrain_status(project),
     }
     if enforce_runtime:
-        result["git_enforcement"] = install_git_enforcement(project, pack_path, require_failed=require_failed)
+        result["git_enforcement"] = install_git_enforcement(project, pack_path, strict_runtime=strict_runtime)
     return result

@@ -199,12 +199,37 @@ class CliTest(unittest.TestCase):
             self.assertIn("Betavibe blocked this commit", blocked.stderr + blocked.stdout)
 
             run_id = self.run_cli("--registry", str(reg), "run-start", "--task", "add feature", "--harness", "codex", "--repo", str(repo)).stdout.strip()
-            self.run_cli("--registry", str(reg), "run-exec", run_id, "--cwd", str(repo), "--no-fail", "--", sys.executable, "-c", "import sys; sys.exit(2)")
-            still_blocked = subprocess.run(["git", "commit", "-m", "feature pass missing"], cwd=repo, text=True, capture_output=True)
-            self.assertNotEqual(still_blocked.returncode, 0)
-            self.assertIn("passing verification", still_blocked.stderr + still_blocked.stdout)
             self.run_cli("--registry", str(reg), "run-exec", run_id, "--cwd", str(repo), "--", sys.executable, "-c", "print('ok')")
-            allowed = subprocess.run(["git", "commit", "-m", "feature with capture"], cwd=repo, text=True, capture_output=True)
+            allowed = subprocess.run(["git", "commit", "-m", "add feature"], cwd=repo, text=True, capture_output=True)
+            self.assertEqual(allowed.returncode, 0, allowed.stderr + allowed.stdout)
+
+    def test_bugfix_commit_message_requires_failed_and_passing_evidence(self):
+        with tempfile.TemporaryDirectory() as td:
+            repo = Path(td) / "repo"
+            reg = repo / ".betavibe" / "registry"
+            repo.mkdir()
+            subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True)
+            subprocess.run(["git", "config", "user.email", "t@example.com"], cwd=repo, check=True)
+            subprocess.run(["git", "config", "user.name", "t"], cwd=repo, check=True)
+            (repo / "README.md").write_text("init\n")
+            subprocess.run(["git", "add", "."], cwd=repo, check=True)
+            subprocess.run(["git", "commit", "-m", "init"], cwd=repo, check=True, capture_output=True)
+            pack = repo / "Betalpha-vibe-coding-partner"
+            subprocess.run(["cp", "-R", str(ROOT), str(pack)], check=True)
+            self.run_cli("--registry", str(reg), "install", "--project", str(repo), "--pack-path", "Betalpha-vibe-coding-partner", "--enforce-runtime")
+
+            (repo / "bug.py").write_text("fixed = True\n")
+            subprocess.run(["git", "add", "bug.py"], cwd=repo, check=True)
+            run_id = self.run_cli("--registry", str(reg), "run-start", "--task", "fix bug", "--harness", "codex", "--repo", str(repo)).stdout.strip()
+            self.run_cli("--registry", str(reg), "run-exec", run_id, "--cwd", str(repo), "--", sys.executable, "-c", "print('ok')")
+            blocked = subprocess.run(["git", "commit", "-m", "fix failing bug"], cwd=repo, text=True, capture_output=True)
+            self.assertNotEqual(blocked.returncode, 0)
+            self.assertIn("no failed-command evidence", blocked.stderr + blocked.stdout)
+
+            run_id = self.run_cli("--registry", str(reg), "run-start", "--task", "fix bug with evidence", "--harness", "codex", "--repo", str(repo)).stdout.strip()
+            self.run_cli("--registry", str(reg), "run-exec", run_id, "--cwd", str(repo), "--no-fail", "--", sys.executable, "-c", "import sys; sys.exit(2)")
+            self.run_cli("--registry", str(reg), "run-exec", run_id, "--cwd", str(repo), "--", sys.executable, "-c", "print('ok')")
+            allowed = subprocess.run(["git", "commit", "-m", "fix failing bug"], cwd=repo, text=True, capture_output=True)
             self.assertEqual(allowed.returncode, 0, allowed.stderr + allowed.stdout)
 
     def test_install_writes_gbrain_status_file(self):

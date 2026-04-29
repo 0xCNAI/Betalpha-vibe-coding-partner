@@ -126,7 +126,7 @@ For zero-reminder harness compliance, install strict runtime enforcement:
 python3 -m betavibe install --project /path/to/project --pack-path Betalpha-vibe-coding-partner --enforce-runtime
 ```
 
-This adds a git pre-commit hook. If Codex/Claude/OpenClaw tries to commit code without recent Betavibe runtime evidence, the commit is blocked and the hook prints the exact commands needed to capture evidence. Strict mode requires both failed-command evidence and later passing verification, so bugfix work should produce `confidence: high` instead of pass-only medium captures. Use `--allow-pass-only` only for non-bugfix workflows.
+This installs lightweight git gates. The pre-commit hook requires recent passing verification for normal work. A commit-msg hook becomes stricter only when the commit message looks like bugfix/regression/auth/migration/schema/deploy/security work; those high-risk commits require both failed-command evidence and later passing verification. This keeps Betavibe as an immune system, not a full-time flight recorder. Use `--strict-runtime` only for focused debugging drills where every commit should require failed+passed evidence.
 
 Install also writes `.betavibe/GBRAIN_STATUS.md`. Agents must read it instead of silently assuming GBrain exists. If GBrain is missing/unhealthy, Betavibe keeps working from the local git registry, but semantic sync/recall is disabled until `gbrain doctor` passes.
 
