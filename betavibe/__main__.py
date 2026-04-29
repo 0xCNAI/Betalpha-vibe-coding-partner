@@ -79,7 +79,7 @@ def cmd_scan_git(args) -> int:
     registry = resolve_registry(args.registry)
     init_registry(registry)
     repo = Path(args.repo).expanduser().resolve()
-    candidates = mine_git(repo, since=args.since, max_commits=args.max_commits)
+    candidates = mine_git(repo, since=args.since, max_commits=args.max_commits, with_github=args.with_github)
     for c in candidates[: args.limit]:
         write_pending(c, registry)
     print(f"scanned {repo}")
