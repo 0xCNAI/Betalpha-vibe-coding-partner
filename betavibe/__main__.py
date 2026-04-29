@@ -9,6 +9,7 @@ from .models import Insight
 from .registry import init_registry, list_insights, list_pending, resolve_registry, write_insight, write_pending
 from .search import search_insights
 from . import gbrain_adapter
+from .install import install as install_agent_contract
 
 
 def csv(value: str | None) -> list[str]:
@@ -256,6 +257,19 @@ def cmd_should_capture(args) -> int:
         print("Keep notes if useful, but avoid polluting the reviewed registry.")
     return 0
 
+
+def cmd_install_agent_contract(args) -> int:
+    project = Path(args.project).expanduser().resolve()
+    changed = install_agent_contract(project, pack_path=args.pack_path)
+    if changed:
+        print("installed Betavibe agent contract into:")
+        for path in changed:
+            print(f"- {path}")
+    else:
+        print("Betavibe agent contract already up to date.")
+    print("Now agents that read root AGENTS/CLAUDE/Codex instructions will automatically run resolvers.")
+    return 0
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="betavibe", description="Betalpha Vibe Coding Partner CLI")
     parser.add_argument("--registry", help="Registry path; defaults to BETAVIBE_REGISTRY or ./registry")
@@ -334,6 +348,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--affects-spec-or-tool-choice", action="store_true")
     p.add_argument("--context", required=True)
     p.set_defaults(func=cmd_should_capture)
+
+    p = sub.add_parser("install-agent-contract")
+    p.add_argument("--project", required=True, help="Project root that should get AGENTS/CLAUDE/Codex resolver instructions")
+    p.add_argument("--pack-path", default="Betalpha-vibe-coding-partner", help="Path from project root to this Betavibe pack")
+    p.set_defaults(func=cmd_install_agent_contract)
     return parser
 
 
