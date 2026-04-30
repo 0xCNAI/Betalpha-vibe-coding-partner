@@ -280,6 +280,19 @@ class CliTest(unittest.TestCase):
             self.run_cli("--registry", str(reg), "verify", "--task", "add feature", "--cwd", str(ROOT), "--", sys.executable, "-c", "print('ok')")
             out = self.run_cli("--registry", str(reg), "learn", "--allow-noop").stdout
             self.assertIn("not strong enough", out)
+            self.assertIn("--force-pending", out)
+
+    def test_learn_force_pending_preserves_human_confirmed_pass_only_run(self):
+        with tempfile.TemporaryDirectory() as td:
+            reg = Path(td) / "registry"
+            captured = self.run_cli("--registry", str(reg), "verify", "--task", "ops debug lesson observed outside wrapper", "--cwd", str(ROOT), "--", sys.executable, "-c", "print('ok')").stdout
+            run_id = [line for line in captured.splitlines() if "Betavibe verify captured run" in line][0].split(": ", 1)[1]
+            out = self.run_cli("--registry", str(reg), "learn", "--force-pending").stdout
+            self.assertIn("Created pending reusable lesson", out)
+            pending = json.loads(self.run_cli("--registry", str(reg), "pending", "--json").stdout)
+            self.assertEqual(pending[0]["source"]["run_id"], run_id)
+            self.assertIn("human-requested weak runtime draft", pending[0]["reasons"])
+            self.assertEqual(pending[0]["score"], 5)
 
     def test_recall_logs_usage_and_metrics_reports_cold_start(self):
         with tempfile.TemporaryDirectory() as td:

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import difflib
 import shutil
 import subprocess
@@ -10,26 +10,46 @@ START = "<!-- BETAVIBE_AGENT_CONTRACT_START -->"
 END = "<!-- BETAVIBE_AGENT_CONTRACT_END -->"
 
 
+def _relative_depth(path: str) -> int:
+    p = path.rstrip("/") or "."
+    if p == ".":
+        return 0
+    parts = [part for part in PurePosixPath(p).parts if part not in (".", "")]
+    return len(parts)
+
+
+def _project_rel_from_pack(pack_path: str) -> str:
+    depth = _relative_depth(pack_path)
+    return "." if depth == 0 else "/".join([".."] * depth)
+
+
+def _registry_rel_from_pack(pack_path: str) -> str:
+    root = _project_rel_from_pack(pack_path)
+    return ".betavibe/registry" if root == "." else f"{root}/.betavibe/registry"
+
+
 def contract_block(pack_path: str = ".") -> str:
     p = pack_path.rstrip("/") or "."
     prefix = f"cd {p} && " if p != "." else ""
+    registry = _registry_rel_from_pack(p)
+    project_root = _project_rel_from_pack(p)
+    base = f"python3 -m betavibe --registry {registry}"
     return f"""{START}
 # Betalpha Vibe Coding Partner
 
 Use Betavibe as a low-friction debug immune system, not a logging ritual.
 
-- Before non-trivial spec/design: `{prefix}python3 -m betavibe recall "<task/context>"` (shortcut for `resolve pre_spec`)
-- Before non-trivial implementation: `{prefix}python3 -m betavibe resolve pre_implement --context "<plan/files/risks>"`
-- For meaningful verification commands: `{prefix}python3 -m betavibe verify --task "<task>" --cwd .. -- <test/build/lint/typecheck/smoke>`; same `--task` appends to one run for fail→fix→pass cycles.
-- After painful verified debugging: optionally run `should-capture`, then `{prefix}python3 -m betavibe learn`; `learn` creates pending drafts only — never promote without human approval.
-- If recall missed a lesson that should exist: `{prefix}python3 -m betavibe journal --task "<task>" --miss "<missing lesson>"`
+- Before non-trivial spec/design: `{prefix}{base} recall "<task/context>"` (shortcut for `resolve pre_spec`)
+- Before non-trivial implementation: `{prefix}{base} resolve pre_implement --context "<plan/files/risks>"`
+- For meaningful verification commands: `{prefix}{base} verify --task "<task>" --cwd {project_root} --repo {project_root} -- <test/build/lint/typecheck/smoke>`; same `--task` appends to one run for fail→fix→pass cycles.
+- After painful verified debugging: optionally run `should-capture`, then `{prefix}{base} learn`; `learn` creates pending drafts only — never promote without human approval. If the original failure was observed outside Betavibe but Tino says it is reusable, run `{prefix}{base} learn --force-pending` to create a review-only pending draft instead of losing the lesson.
+- If recall missed a lesson that should exist: `{prefix}{base} journal --task "<task>" --miss "<missing lesson>"`
 
 Memory placement: project-specific lessons stay in this repo's `.betavibe/registry`; portable cross-repo lessons stay in `~/.betavibe/personal`; GBrain is optional semantic federation, not the source of truth. Store an insight where the fix lives: code -> source repo, config/cron/env -> ops repo, truly portable -> personal.
 
-Capture only hard-won, verified lessons. Do not store routine edits, guesses, generic advice, or unverified fixes.
+Capture only hard-won, verified, reusable lessons. Do not store routine edits, guesses, generic advice, or unverified fixes.
 {END}
 """
-
 
 def planned_upsert(path: Path, block: str) -> tuple[bool, str, str]:
     existing = path.read_text(encoding="utf-8") if path.exists() else ""
@@ -263,21 +283,24 @@ def install_hooks(project: Path, pack_path: str = "Betalpha-vibe-coding-partner"
     scripts = {
         "pre_spec.sh": f"""#!/usr/bin/env bash
 set -euo pipefail
-cd \"$(dirname \"$0\")/../..\"
+PROJECT_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+cd "$PROJECT_ROOT"
 cd {pack_path!r}
-python3 -m betavibe resolve pre_spec --context \"${{*:-}}\"
+python3 -m betavibe --registry "$PROJECT_ROOT/.betavibe/registry" resolve pre_spec --context "${{*:-}}"
 """,
         "pre_implement.sh": f"""#!/usr/bin/env bash
 set -euo pipefail
-cd \"$(dirname \"$0\")/../..\"
+PROJECT_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+cd "$PROJECT_ROOT"
 cd {pack_path!r}
-python3 -m betavibe resolve pre_implement --context \"${{*:-}}\"
+python3 -m betavibe --registry "$PROJECT_ROOT/.betavibe/registry" resolve pre_implement --context "${{*:-}}"
 """,
         "should_capture.sh": f"""#!/usr/bin/env bash
 set -euo pipefail
-cd \"$(dirname \"$0\")/../..\"
+PROJECT_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+cd "$PROJECT_ROOT"
 cd {pack_path!r}
-python3 -m betavibe should-capture "$@"
+python3 -m betavibe --registry "$PROJECT_ROOT/.betavibe/registry" should-capture "$@"
 """,
     }
     changed: list[Path] = []
@@ -292,7 +315,6 @@ python3 -m betavibe should-capture "$@"
                 path.chmod(0o755)
             changed.append(path)
     return changed
-
 
 def install_all(project: Path, pack_path: str = "Betalpha-vibe-coding-partner", enforce_runtime: bool = False, strict_runtime: bool = False, minimal: bool = False, dry_run: bool = False, profile: str = "auto") -> dict[str, list[Path] | list[str]]:
     effective_profile = detect_profile(project) if profile == "auto" else profile

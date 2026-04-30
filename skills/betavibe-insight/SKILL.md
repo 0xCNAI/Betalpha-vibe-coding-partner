@@ -83,6 +83,8 @@ Minimum fields:
 
 Then run `capture --sync-gbrain`.
 
+If the final verification was captured but the original failure happened outside Betavibe, run `learn --force-pending` only after the human confirms the lesson is reusable. This creates a pending review draft, not a reviewed insight.
+
 ## Quality bar
 
 Only capture hard-won, verified, reusable lessons. Reject routine edits, generic advice, guesses, unverified fixes, and notes that would not help a future agent act differently.

@@ -221,7 +221,7 @@ def verify_command(registry: Path, task: str, command: list[str], cwd: Path, har
     return (0 if no_fail else code), run_id, draft
 
 
-def learn_from_run(registry: Path, run_id: str | None = None) -> tuple[str, Path | None]:
+def learn_from_run(registry: Path, run_id: str | None = None, force_pending: bool = False) -> tuple[str, Path | None]:
     from .registry import write_pending
 
     run_id = run_id or latest_run_id(registry)
@@ -235,18 +235,18 @@ def learn_from_run(registry: Path, run_id: str | None = None) -> tuple[str, Path
     commands = draft.get("evidence", {}).get("commands", [])
     has_failed = any(not c.get("ok") for c in commands)
     changed = draft.get("evidence", {}).get("changed_files", [])
-    if draft.get("confidence") != "high" or not has_failed:
-        return f"Run {run_id} is not strong enough to learn automatically (confidence={draft.get('confidence')}, failed_evidence={'yes' if has_failed else 'no'}). Keep it as runtime evidence; promote only if the human says it was a reusable lesson.", None
+    if (draft.get("confidence") != "high" or not has_failed) and not force_pending:
+        return f"Run {run_id} is not strong enough to learn automatically (confidence={draft.get('confidence')}, failed_evidence={'yes' if has_failed else 'no'}). Keep it as runtime evidence; if the human says it was a reusable lesson, rerun with --force-pending to create a review-only pending draft.", None
     key = hashlib.sha1((run_id + draft.get("title", "")).encode("utf-8")).hexdigest()[:10]
     candidate = {
         "id": f"runtime-{key}",
         "title": draft.get("title") or summary.get("task") or "Runtime captured lesson",
         "type": draft.get("type", "pitfall"),
-        "score": 8 + min(2, len(changed)),
+        "score": (8 + min(2, len(changed))) if has_failed else 5,
         "summary": draft.get("summary", ""),
         "tags": draft.get("tags", ["runtime-capture"]),
         "tech_stack": draft.get("tech_stack", []),
-        "reasons": ["failed command evidence", "passing verification", "runtime capture"],
+        "reasons": (["failed command evidence", "passing verification", "runtime capture"] if has_failed else ["human-requested weak runtime draft", "passing verification", "runtime capture"]),
         "source": {"kind": "runtime", "run_id": run_id, "changed_files": changed},
         "draft": draft,
     }

@@ -450,7 +450,7 @@ def cmd_verify(args) -> int:
 
 def cmd_learn(args) -> int:
     registry = resolve_registry(args.registry)
-    message, path = learn_from_run(registry, run_id=args.run_id)
+    message, path = learn_from_run(registry, run_id=args.run_id, force_pending=args.force_pending)
     print(message)
     return 0 if (path or args.allow_noop) else 1
 
@@ -819,6 +819,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("learn")
     p.add_argument("--run-id", default=None, help="Runtime run to turn into a pending lesson; defaults to latest run")
+    p.add_argument("--force-pending", action="store_true", help="Create a review-only pending draft even without failed-command evidence; use only after human confirms the lesson is reusable")
     p.add_argument("--allow-noop", action="store_true", help="Return success even when the latest run is not strong enough to learn from")
     p.set_defaults(func=cmd_learn)
 

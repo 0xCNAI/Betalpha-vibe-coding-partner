@@ -21,6 +21,8 @@ class InstallContractTest(unittest.TestCase):
                 self.assertIn("resolve pre_spec", text)
                 self.assertIn("should-capture", text)
                 self.assertIn("tools/betavibe", text)
+                self.assertIn("--registry ../../.betavibe/registry", text)
+                self.assertIn("--cwd ../.. --repo ../..", text)
 
     def test_install_agent_contract_is_idempotent(self):
         with tempfile.TemporaryDirectory() as td:
@@ -50,6 +52,8 @@ class InstallContractTest(unittest.TestCase):
                 ".betavibe/hooks/should_capture.sh",
             ]:
                 self.assertTrue((project / rel).exists(), rel)
+            hook = (project / ".betavibe/hooks/pre_implement.sh").read_text()
+            self.assertIn('--registry "$PROJECT_ROOT/.betavibe/registry"', hook)
 
 if __name__ == "__main__":
     unittest.main()
