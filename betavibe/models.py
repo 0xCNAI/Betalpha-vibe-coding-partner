@@ -65,7 +65,13 @@ class Insight:
         parts = ["---", json.dumps(fm, ensure_ascii=False, indent=2), "---", ""]
         order = ["symptom", "root_cause", "wrong_paths", "fix", "decision", "tradeoffs", "pattern", "tool_guidance", "evidence"]
         for key in order:
-            val = (self.body.get(key) or "").strip()
+            raw = self.body.get(key)
+            if raw is None:
+                val = ""
+            elif isinstance(raw, str):
+                val = raw.strip()
+            else:
+                val = json.dumps(raw, ensure_ascii=False, indent=2).strip()
             if val:
                 parts.append(f"## {key.replace('_', ' ').title()}")
                 parts.append("")

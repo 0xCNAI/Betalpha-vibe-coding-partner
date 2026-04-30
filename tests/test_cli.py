@@ -472,7 +472,7 @@ class CliTest(unittest.TestCase):
                     "fix": "Run webhook self-test after token refresh.",
                     "prevention_signal": "Before changing OAuth refresh logic, run webhook delivery self-test.",
                     "verify_trigger": "When OAuth refresh, webhook auth, or callback URLs change.",
-                    "evidence": "test evidence",
+                    "evidence": {"commands": [{"cmd_text": "webhook self-test", "ok": True}], "notes": ["verified"]},
                 },
             }
             pending = reg / "pending"
@@ -480,7 +480,9 @@ class CliTest(unittest.TestCase):
             (pending / "manual-1.json").write_text(json.dumps(candidate), encoding="utf-8")
             proc = self.run_cli("--registry", str(reg), "promote", "manual-1", "--sync-gbrain")
             self.assertIn("promoted pending candidate", proc.stdout)
-            self.assertTrue(list((reg / "insights").rglob("INSIGHT.md")))
+            insights = list((reg / "insights").rglob("INSIGHT.md"))
+            self.assertTrue(insights)
+            self.assertIn('"cmd_text": "webhook self-test"', insights[0].read_text())
             self.assertFalse((pending / "manual-1.json").exists())
 
 if __name__ == "__main__":
