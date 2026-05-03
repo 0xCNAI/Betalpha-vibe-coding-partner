@@ -44,6 +44,8 @@ python3 -m betavibe resolve pre_implement --context "<plan and files>"
 python3 -m betavibe should-capture --debug-minutes 35 --attempts 3 --had-error-log --final-fix-verified --context "<bug summary>"
 ```
 
+Registry routing is project-first: if `--registry` / `BETAVIBE_REGISTRY` is omitted, Betavibe walks upward from the current working directory and uses the nearest `.betavibe/registry`. This prevents vendored installs from accidentally writing runtime evidence into `vendor/Betalpha-vibe-coding-partner/registry`.
+
 If capture is recommended, the agent asks you for approval in chat, then writes the insight.
 
 ## Human-facing commands, only when needed

@@ -5,12 +5,34 @@ import json
 import os
 from .models import Insight
 
-DEFAULT_REGISTRY = Path(os.environ.get("BETAVIBE_REGISTRY", "registry"))
 DEFAULT_PERSONAL_REGISTRY = Path(os.environ.get("BETAVIBE_PERSONAL_REGISTRY", "~/.betavibe/personal")).expanduser()
 
 
+def _nearest_project_registry(start: Path | None = None) -> Path | None:
+    """Find the nearest host-project registry from the current working tree.
+
+    Betavibe is often vendored under `vendor/Betalpha-vibe-coding-partner`.
+    In that layout, the dangerous historical default was `./registry`, which
+    writes evidence into the vendored pack instead of the host project.  Prefer
+    the nearest parent containing `.betavibe/` so plain `python3 -m betavibe ...`
+    still lands in the project registry.
+    """
+
+    cursor = (start or Path.cwd()).resolve()
+    for parent in (cursor, *cursor.parents):
+        marker = parent / ".betavibe"
+        if marker.exists():
+            return marker / "registry"
+    return None
+
+
 def resolve_registry(path: str | Path | None = None) -> Path:
-    return Path(path) if path else DEFAULT_REGISTRY
+    if path:
+        return Path(path)
+    env_registry = os.environ.get("BETAVIBE_REGISTRY")
+    if env_registry:
+        return Path(env_registry)
+    return _nearest_project_registry() or Path("registry")
 
 
 def personal_registry() -> Path:
