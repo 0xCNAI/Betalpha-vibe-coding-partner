@@ -4,7 +4,10 @@ Read `AGENTS.md` first.
 
 Do not wait for the human to remember commands. Automatically call:
 
+- `python3 -m betavibe spec-start --task "<task>" --context "..." --out specs/<name>.md` before writing specs
 - `python3 -m betavibe resolve pre_spec --context "..."` before specs
+- `python3 -m betavibe spec-validate specs/<name>.md` before implementation
+- `python3 -m betavibe implement-start --spec specs/<name>.md` before editing from a spec
 - `python3 -m betavibe resolve pre_implement --context "..."` before non-trivial edits
 - `.betavibe/hooks/verify.sh --task "<task>" --no-fail -- <failing command>` when reproducing a bug
 - `.betavibe/hooks/verify.sh --task "<task>" -- <passing verification>` after the fix

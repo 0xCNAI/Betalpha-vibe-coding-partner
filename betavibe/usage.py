@@ -22,6 +22,14 @@ def resolver_log_path(registry: Path) -> Path:
     return usage_root(registry) / "resolver_events.jsonl"
 
 
+def telemetry_log_path(registry: Path) -> Path:
+    return registry / "telemetry" / "queries.jsonl"
+
+
+def feedback_log_path(registry: Path) -> Path:
+    return registry / "telemetry" / "feedback.jsonl"
+
+
 def journal_log_path(registry: Path) -> Path:
     return usage_root(registry) / "journal.jsonl"
 
@@ -33,7 +41,7 @@ def append_jsonl(path: Path, event: dict) -> None:
 
 
 def log_resolver_event(registry: Path, *, phase: str, context: str, local_hits: list[dict], gbrain_hits: list[dict], harness: str | None = None) -> None:
-    append_jsonl(resolver_log_path(registry), {
+    event = {
         "kind": "resolver",
         "phase": phase,
         "context": context,
@@ -42,6 +50,18 @@ def log_resolver_event(registry: Path, *, phase: str, context: str, local_hits: 
         "gbrain_hits": len(gbrain_hits),
         "top_local": local_hits[:5],
         "top_gbrain": gbrain_hits[:5],
+    }
+    append_jsonl(resolver_log_path(registry), event)
+    append_jsonl(telemetry_log_path(registry), event)
+
+
+def log_feedback_event(registry: Path, *, insight_id: str, status: str, note: str | None = None, context: str | None = None) -> None:
+    append_jsonl(feedback_log_path(registry), {
+        "kind": "feedback",
+        "insight_id": insight_id,
+        "status": status,
+        "note": note,
+        "context": context,
     })
 
 
@@ -72,6 +92,8 @@ def read_jsonl(path: Path) -> list[dict]:
 
 def summarize_usage(registry: Path) -> dict:
     resolver = read_jsonl(resolver_log_path(registry))
+    telemetry = read_jsonl(telemetry_log_path(registry))
+    feedback = read_jsonl(feedback_log_path(registry))
     journal = read_jsonl(journal_log_path(registry))
     runs = registry / "runs"
     run_summaries = []
@@ -92,7 +114,7 @@ def summarize_usage(registry: Path) -> dict:
     repo_hit_events = sum(1 for e in resolver if any(h.get("scope") == "repo" for h in e.get("top_local", [])))
     gbrain_hit_events = sum(1 for e in resolver if int(e.get("gbrain_hits") or 0) > 0)
     retrieval_counter: Counter[str] = Counter()
-    for e in resolver:
+    for e in telemetry or resolver:
         for h in e.get("top_local", []):
             key = h.get("slug")
             if not key:
@@ -101,6 +123,7 @@ def summarize_usage(registry: Path) -> dict:
                 key = parts[-2] if len(parts) >= 2 and parts[-1] == "INSIGHT.md" else (h.get("title") or path)
             if key:
                 retrieval_counter[str(key)] += 1
+    feedback_counter = Counter(e.get("status", "unknown") for e in feedback)
     high_conf = 0
     pass_only = 0
     failed_and_passed = 0
@@ -117,6 +140,7 @@ def summarize_usage(registry: Path) -> dict:
             failed_and_passed += 1
     return {
         "resolver_calls": len(resolver),
+        "telemetry_queries": len(telemetry),
         "resolver_phases": dict(phases),
         "resolver_local_hit_events": local_hit_events,
         "resolver_repo_hit_events": repo_hit_events,
@@ -128,6 +152,8 @@ def summarize_usage(registry: Path) -> dict:
         "journal_misses": sum(1 for e in journal if e.get("miss")),
         "journal_wrong_paths": sum(1 for e in journal if e.get("wrong_path")),
         "journal_useful_hits": sum(1 for e in journal if e.get("useful_hit")),
+        "feedback_events": len(feedback),
+        "feedback_statuses": dict(feedback_counter),
         "runtime_runs": len(run_summaries),
         "runtime_high_confidence_runs": high_conf,
         "runtime_pass_only_runs": pass_only,
@@ -146,6 +172,7 @@ def format_metrics(summary: dict) -> str:
         f"- pending_candidates: {summary['pending_candidates']}",
         f"- personal_portable_insights: {summary['personal_portable_insights']}",
         f"- resolver_calls: {summary['resolver_calls']}",
+        f"- telemetry_queries: {summary.get('telemetry_queries', 0)}",
         f"- resolver_local_hit_events: {summary['resolver_local_hit_events']}",
         f"- resolver_repo_hit_events: {summary['resolver_repo_hit_events']}",
         f"- resolver_personal_hit_events: {summary['resolver_personal_hit_events']}",
@@ -155,6 +182,7 @@ def format_metrics(summary: dict) -> str:
         f"- journal_misses: {summary['journal_misses']}",
         f"- journal_wrong_paths: {summary['journal_wrong_paths']}",
         f"- journal_useful_hits: {summary['journal_useful_hits']}",
+        f"- feedback_events: {summary.get('feedback_events', 0)}",
         f"- runtime_runs: {summary['runtime_runs']}",
         f"- runtime_high_confidence_runs: {summary['runtime_high_confidence_runs']}",
         f"- runtime_pass_only_runs: {summary['runtime_pass_only_runs']}",

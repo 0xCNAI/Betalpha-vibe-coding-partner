@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import argparse
-from datetime import datetime, timezone
+from collections import Counter
+from datetime import date, datetime, timezone
 import json
 import os
 from pathlib import Path
@@ -9,14 +10,17 @@ from .gitmine import mine_git
 from .excavate import excavate, write_report as write_excavation_report
 from .models import Insight
 from .registry import init_registry, list_insights, list_scoped_insights, list_pending, personal_registry, resolve_registry, write_insight, write_pending
-from .search import search_insights
+from .search import hybrid_search_insights, search_insights
 from . import gbrain_adapter
 from .install import bootstrap as bootstrap_install, install_contract as install_agent_contract, install_all, uninstall_all
 from .sync import commit_registry
 from .runtime_capture import start_run, run_command, finish_run, verify_command, learn_from_run
 from .enforce import check_runtime_required
-from .usage import log_resolver_event, log_journal_event, summarize_usage, format_metrics
+from .usage import feedback_log_path, log_feedback_event, log_resolver_event, log_journal_event, read_jsonl, summarize_usage, format_metrics
 from .acceptance import run_acceptance_demo
+from .bench import run_bench
+from .specflow import compliance_rate, log_spec_event, staged_spec_paths, validate_many, validate_spec, write_spec_start
+from .semantic import model_size_bytes, rebuild_embeddings
 
 
 def csv(value: str | None) -> list[str]:
@@ -250,9 +254,22 @@ def cmd_excavate(args) -> int:
 
 def cmd_doctor(args) -> int:
     registry = resolve_registry(args.registry)
+    insights = list_insights(registry)
+    today = date.today()
+    stale = []
+    tech_missing = []
+    for insight in insights:
+        try:
+            age_days = (today - date.fromisoformat(insight.last_verified_at)).days
+        except ValueError:
+            age_days = 999999
+        if age_days > 183:
+            stale.append((insight, age_days))
+        if insight.tech_stack and not insight.tech_versions_last_seen:
+            tech_missing.append(insight)
     print("Betavibe doctor")
     print(f"- registry: {registry}")
-    print(f"- reviewed insights: {len(list_insights(registry))}")
+    print(f"- reviewed insights: {len(insights)}")
     print(f"- pending candidates: {len(list_pending(registry))}")
     g = gbrain_adapter.status()
     print(f"- gbrain installed: {'yes' if g.installed else 'no'}")
@@ -262,6 +279,12 @@ def cmd_doctor(args) -> int:
     print(f"- gbrain guidance: {g.install_hint}")
     print("- cross-harness source of truth: local registry files committed to git")
     print("- semantic layer: GBrain optional; if missing, resolvers fall back to local registry")
+    print(f"- stale insights >6mo: {len(stale)}")
+    for insight, age_days in stale[:10]:
+        print(f"  stale: {insight.slug} last_verified_at={insight.last_verified_at} age_days={age_days}")
+    print(f"- insights missing tech_versions_last_seen: {len(tech_missing)}")
+    for insight in tech_missing[:10]:
+        print(f"  outdated-tech-check-needed: {insight.slug} tech_stack={','.join(insight.tech_stack)}")
     return 0 if (not args.require_gbrain or g.healthy) else 1
 
 
@@ -475,6 +498,101 @@ def cmd_metrics(args) -> int:
     return 0
 
 
+def _insight_matches(insight: Insight, insight_id: str) -> bool:
+    return insight.slug == insight_id or insight.title == insight_id or str(insight.path or "") == insight_id
+
+
+def _feedback_counts(registry: Path) -> Counter:
+    counts: Counter = Counter()
+    for event in read_jsonl(feedback_log_path(registry)):
+        status = event.get("status")
+        insight_id = event.get("insight_id")
+        if insight_id and status:
+            counts[(str(insight_id), str(status))] += 1
+    return counts
+
+
+def _auto_promote_reoccurred_ignored(registry: Path, hit_slugs: list[str]) -> list[Path]:
+    counts = _feedback_counts(registry)
+    promoted: list[Path] = []
+    for slug in hit_slugs:
+        ignored = counts[(slug, "ignored")] + counts[(slug, "false_positive")]
+        if ignored < 3:
+            continue
+        for pending in list_pending(registry):
+            haystack = " ".join([pending.get("id", ""), pending.get("title", ""), pending.get("summary", "")]).lower()
+            if slug.lower() not in haystack:
+                continue
+            draft = pending.get("draft", {})
+            insight = Insight(
+                title=pending.get("title") or slug,
+                type=pending.get("type", "pitfall"),
+                tags=pending.get("tags", ["auto-promoted"]),
+                tech_stack=pending.get("tech_stack", []),
+                summary=pending.get("summary") or f"Auto-promoted after repeated ignored retrieval feedback for {slug}.",
+                prevention_signal=draft.get("prevention_signal") or f"Before repeating work related to {slug}, inspect the pending lesson that reoccurred after ignored feedback.",
+                verify_trigger=draft.get("verify_trigger") or "When the same ignored retrieval pattern reappears.",
+                source={**pending.get("source", {}), "auto_promoted_from_feedback": slug},
+                body={
+                    "symptom": draft.get("symptom", ""),
+                    "root_cause": draft.get("root_cause", ""),
+                    "wrong_paths": draft.get("wrong_paths", ""),
+                    "fix": draft.get("fix", ""),
+                    "evidence": draft.get("evidence", f"Repeated ignored retrieval feedback count: {ignored}; reoccurred in resolver hit."),
+                },
+            )
+            path = write_insight(insight, registry)
+            Path(pending["_path"]).unlink(missing_ok=True)
+            promoted.append(path)
+            break
+    return promoted
+
+
+def cmd_insight_feedback(args) -> int:
+    registry = resolve_registry(args.registry)
+    log_feedback_event(registry, insight_id=args.id, status=args.status, note=args.note, context=args.context)
+    print(f"feedback recorded: {args.id} {args.status}")
+    return 0
+
+
+def cmd_insight_stats(args) -> int:
+    registry = resolve_registry(args.registry)
+    insights = list_scoped_insights(registry, include_personal=not args.no_personal)
+    insight = next((item for item in insights if _insight_matches(item, args.id)), None)
+    if not insight:
+        raise SystemExit(f"insight not found: {args.id}")
+    telemetry = read_jsonl(registry / "telemetry" / "queries.jsonl")
+    feedback = read_jsonl(feedback_log_path(registry))
+    retrievals = [
+        event for event in telemetry
+        if any(h.get("slug") == insight.slug or h.get("title") == insight.title for h in event.get("top_local", []))
+    ]
+    statuses = Counter(
+        event.get("status", "unknown")
+        for event in feedback
+        if event.get("insight_id") in {insight.slug, insight.title, str(insight.path or "")}
+    )
+    out = {
+        "slug": insight.slug,
+        "title": insight.title,
+        "path": str(insight.path) if insight.path else None,
+        "retrievals": len(retrievals),
+        "feedback": dict(statuses),
+        "last_verified_at": insight.last_verified_at,
+        "tech_versions_last_seen": insight.tech_versions_last_seen,
+    }
+    if args.json:
+        print(json.dumps(out, ensure_ascii=False, indent=2))
+    else:
+        print(f"insight: {out['slug']}")
+        print(f"title: {out['title']}")
+        print(f"retrievals: {out['retrievals']}")
+        print(f"feedback: {out['feedback']}")
+        print(f"last_verified_at: {out['last_verified_at']}")
+        print(f"tech_versions_last_seen: {out['tech_versions_last_seen']}")
+    return 0
+
+
 def cmd_resolve(args) -> int:
     registry = resolve_registry(args.registry)
     insights = list_scoped_insights(registry, include_personal=not getattr(args, "no_personal", False))
@@ -485,7 +603,7 @@ def cmd_resolve(args) -> int:
         "post_session": "decision pattern tool choice spec guardrail reusable lesson",
     }
     query = f"{args.context} {phase_terms.get(args.phase, '')}"
-    hits = search_insights(insights, query, limit=args.limit)
+    hits = hybrid_search_insights(registry, insights, query, limit=args.limit)
     print(f"resolver: {args.phase}")
     print(f"context: {args.context}")
     print("")
@@ -526,6 +644,9 @@ def cmd_resolve(args) -> int:
     local_hit_rows = [{"score": score, "slug": insight.slug, "title": insight.title, "type": insight.type, "path": str(insight.path) if insight.path else None, "scope": "personal" if "portable" in insight.tags else "repo"} for score, insight, matched in hits]
     gbrain_hit_rows = [{"slug": h.slug, "score": h.score, "stale": h.stale} for h in gbrain_hits]
     log_resolver_event(registry, phase=args.phase, context=args.context, local_hits=local_hit_rows, gbrain_hits=gbrain_hit_rows, harness=os.environ.get("BETAVIBE_HARNESS"))
+    promoted = _auto_promote_reoccurred_ignored(registry, [row["slug"] for row in local_hit_rows])
+    for path in promoted:
+        print(f"auto-promoted pending candidate after repeated ignored feedback: {path}")
 
     if args.phase in ("pre_spec", "pre_implement"):
         print("# Spec-ready synthesis")
@@ -723,6 +844,114 @@ def cmd_acceptance_demo(args) -> int:
     print(f"pre_implement output: {result.pre_implement_output}")
     return 0
 
+
+def cmd_bench(args) -> int:
+    registry = resolve_registry(args.registry)
+    out = Path(args.out) if args.out else Path("bench_report.json")
+    result = run_bench(
+        Path(args.repo),
+        registry,
+        since=args.since,
+        out=out,
+        max_commits=args.max_commits,
+        min_cases=args.min_cases,
+        limit=args.limit,
+        include_personal=not args.no_personal,
+        search_mode=args.search_mode,
+    )
+    overall = result.report["metrics"]["overall"]
+    real_cases = result.report["metrics"]["real_cases"]
+    null_controls = result.report["metrics"]["null_controls"]
+    print(f"bench report: {result.path}")
+    print(f"cases: {result.report['case_count']}")
+    print(f"reviewed_insights: {result.report['reviewed_insight_count']}")
+    print(f"null_controls: {result.report['null_control_count']}")
+    print(f"hit_rate: {overall['hit_rate']:.4f}")
+    print(f"miss_rate: {overall['miss_rate']:.4f}")
+    print(f"false_positive_rate: {overall['false_positive_rate']:.4f}")
+    print(f"null_rate: {overall['null_rate']:.4f}")
+    print(f"real_hit_rate: {real_cases['hit_rate']:.4f}")
+    print(f"null_control_not_hit_rate: {(1 - null_controls['hit_rate']):.4f}")
+    print(f"p95_latency_ms: {overall['latency']['p95_ms']:.2f}")
+    return 0
+
+
+def cmd_migrate_schema(args) -> int:
+    registry = resolve_registry(args.registry)
+    insights = list_insights(registry)
+    rewritten = 0
+    for insight in insights:
+        if not insight.path:
+            continue
+        before = insight.path.read_text(encoding="utf-8")
+        after = insight.to_markdown()
+        if before != after:
+            insight.path.write_text(after, encoding="utf-8")
+            rewritten += 1
+    embeddings = rebuild_embeddings(registry, list_insights(registry))
+    missing = [
+        str(insight.path)
+        for insight in list_insights(registry)
+        if not insight.concrete_evidence.strip() or not insight.transferable_pattern.strip()
+    ]
+    print(f"reviewed_insights: {len(insights)}")
+    print(f"rewritten: {rewritten}")
+    print(f"embeddings: {embeddings}")
+    print(f"model_size_bytes: {model_size_bytes()}")
+    print(f"schema_missing_required_fields: {len(missing)}")
+    for path in missing[:10]:
+        print(f"- {path}")
+    return 0 if not missing else 1
+
+
+def _print_spec_validation(results) -> None:
+    for result in results:
+        status = "OK" if result.ok else "FAIL"
+        print(f"{status} {result.path}")
+        if result.missing:
+            print("missing sections: " + ", ".join(result.missing))
+        if result.empty:
+            print("empty sections: " + ", ".join(result.empty))
+
+
+def cmd_spec_start(args) -> int:
+    registry = resolve_registry(args.registry)
+    path = write_spec_start(registry, args.task, context=args.context or "", out=Path(args.out) if args.out else None)
+    print(f"spec started: {path}")
+    return 0
+
+
+def cmd_spec_validate(args) -> int:
+    registry = resolve_registry(args.registry)
+    if args.compliance_dir:
+        summary = compliance_rate(Path(args.compliance_dir))
+        if args.json:
+            print(json.dumps(summary, ensure_ascii=False, indent=2))
+        else:
+            print(f"sessions: {summary['sessions']}")
+            print(f"specs_written: {summary['specs_written']}")
+            print(f"spec_start_called: {summary['spec_start_called']}")
+            print(f"compliance_rate: {summary['compliance_rate']:.4f}")
+        return 0
+    paths = staged_spec_paths(Path(args.repo).expanduser().resolve() if args.repo else None) if args.staged else [Path(args.spec)]
+    results = validate_many(paths)
+    _print_spec_validation(results)
+    for result in results:
+        log_spec_event(registry, "spec_validate", {"spec_path": str(result.path), "ok": result.ok, "missing": result.missing, "empty": result.empty})
+    return 0 if all(result.ok for result in results) else 1
+
+
+def cmd_implement_start(args) -> int:
+    registry = resolve_registry(args.registry)
+    result = validate_spec(Path(args.spec))
+    _print_spec_validation([result])
+    log_spec_event(registry, "implement_start", {"spec_path": str(result.path), "ok": result.ok, "context": args.context or ""})
+    if not result.ok:
+        print("implementation blocked until spec passes spec-validate")
+        return 1
+    print("implementation may start")
+    return 0
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="betavibe", description="Betalpha Vibe Coding Partner CLI")
     parser.add_argument("--registry", help="Registry path; defaults to BETAVIBE_REGISTRY or ./registry")
@@ -850,6 +1079,19 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_metrics)
 
+    p = sub.add_parser("insight-feedback")
+    p.add_argument("id", help="Insight slug, title, or path")
+    p.add_argument("status", choices=["applied", "ignored", "false_positive"])
+    p.add_argument("--context", default=None)
+    p.add_argument("--note", default=None)
+    p.set_defaults(func=cmd_insight_feedback)
+
+    p = sub.add_parser("insight-stats")
+    p.add_argument("id", help="Insight slug, title, or path")
+    p.add_argument("--json", action="store_true")
+    p.add_argument("--no-personal", action="store_true")
+    p.set_defaults(func=cmd_insight_stats)
+
     p = sub.add_parser("run-start")
     p.add_argument("--task", required=True)
     p.add_argument("--harness", default=None, help="openclaw, claude-code, codex, cursor, etc.")
@@ -950,6 +1192,40 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--out", help="Markdown report path; defaults to <project>/.betavibe/reports/acceptance-*/report.md")
     p.add_argument("--force", action="store_true", help="Delete and recreate project if it already exists")
     p.set_defaults(func=cmd_acceptance_demo)
+
+    p = sub.add_parser("bench")
+    p.add_argument("--repo", required=True, help="Git repo to mine for fix/regression benchmark cases")
+    p.add_argument("--since", required=True, help="git log --since value, for example '6 months ago'")
+    p.add_argument("--out", default="bench_report.json", help="JSON report path; defaults to ./bench_report.json")
+    p.add_argument("--max-commits", type=int, default=500)
+    p.add_argument("--min-cases", type=int, default=30)
+    p.add_argument("--limit", type=int, default=5, help="Resolver hits considered per phase")
+    p.add_argument("--search-mode", choices=["lexical", "hybrid"], default="lexical")
+    p.add_argument("--no-personal", action="store_true", help="Do not include ~/.betavibe/personal portable insights")
+    p.set_defaults(func=cmd_bench)
+
+    p = sub.add_parser("migrate-schema")
+    p.set_defaults(func=cmd_migrate_schema)
+
+    p = sub.add_parser("spec-start")
+    p.add_argument("--task", required=True)
+    p.add_argument("--context", default="")
+    p.add_argument("--out", help="Spec path; defaults to specs/<date>-<task>.md")
+    p.set_defaults(func=cmd_spec_start)
+
+    p = sub.add_parser("spec-validate")
+    target = p.add_mutually_exclusive_group(required=True)
+    target.add_argument("spec", nargs="?", help="Spec markdown file to validate")
+    target.add_argument("--staged", action="store_true", help="Validate staged specs/*.md files")
+    target.add_argument("--compliance-dir", help="Summarize simulated compliance session logs")
+    p.add_argument("--repo", help="Repo root for --staged; defaults to cwd")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_spec_validate)
+
+    p = sub.add_parser("implement-start")
+    p.add_argument("--spec", required=True)
+    p.add_argument("--context", default="")
+    p.set_defaults(func=cmd_implement_start)
     return parser
 
 

@@ -59,7 +59,13 @@ def write_insight(insight: Insight, registry: Path) -> Path:
     folder = registry / "insights" / f"{insight.created_at[:7]}-{insight.slug}"
     folder.mkdir(parents=True, exist_ok=True)
     path = folder / "INSIGHT.md"
+    insight.path = path
     path.write_text(insight.to_markdown(), encoding="utf-8")
+    try:
+        from .semantic import index_insight
+        index_insight(registry, insight)
+    except Exception as exc:
+        print(f"[warn] skipped embedding index for {insight.slug}: {exc}")
     return path
 
 

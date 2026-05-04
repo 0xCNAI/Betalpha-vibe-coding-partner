@@ -4,6 +4,19 @@ Drop this folder into a project and coding agents should automatically reuse and
 
 It is designed for OpenClaw, Claude Code, Codex, Cowork, Cursor, and any tool that reads project instruction files.
 
+## Production readiness status
+
+| Goal | Status | Evidence |
+| --- | --- | --- |
+| G0 - Baseline measurement | PASS (redo) | 30 insights; 68 real cases; 7 null controls; overall hit_rate 17.33%; real-case hit_rate 19.12%; drift 0.00pp |
+| G1 - Unskippable resolver calls | PASS | `spec-start`, `spec-validate`, `implement-start`; compliance 4/5 = 80.00%; 10/10 spec validation cases |
+| G2 - Local semantic search + two-layer schema | PASS | Hybrid hit_rate 90.67%; false_positive 9.33%; null-control not-hit 100.00%; 100-insight p95 54.09ms; 69/69 schema-complete insights |
+| G3 - Telemetry + lifecycle loop | PASS | Registry telemetry, feedback/stats CLI, stale doctor, auto-promote loop; 46 tests OK |
+| G4 - Real cross-project transfer | BLOCKED | Missing required 2-week real-world evidence; see `docs/BLOCKED_G4.md` |
+| G5 - Production hardening | Not started | Start only after G4 acceptance |
+
+See `docs/BENCHMARKS.md` for baseline details.
+
 ## What you should experience
 
 You should **not** need to remember commands.
@@ -177,6 +190,24 @@ python3 -m betavibe acceptance-demo /tmp/betavibe-acceptance --force
 ```
 
 `acceptance-demo` creates a temporary git project, installs Betavibe, reproduces a failing test through `.betavibe/hooks/verify.sh`, fixes it, captures the passing verification, runs `.betavibe/hooks/learn.sh`, preserves the pending runtime lesson as an artifact, simulates human approval by promoting it without GBrain sync, and writes a report with Codex / Claude Code / OpenClaw installation evidence plus `pre_spec` and `pre_implement` resolver output.
+
+Run the local resolver benchmark against a reference repo:
+
+```bash
+python3 -m betavibe bench --repo /path/to/reference-repo --since "6 months ago"
+```
+
+`bench` mines fix/regression commits, derives `task_description` and `actual_pitfall`, runs both `pre_spec` and `pre_implement` resolver searches, then writes `bench_report.json` with hit, miss, false-positive, null, and latency metrics.
+
+Start and validate a spec before implementation:
+
+```bash
+python3 -m betavibe spec-start --task "ship auth fix" --context "<resolver output>" --out specs/auth-fix.md
+python3 -m betavibe spec-validate specs/auth-fix.md
+python3 -m betavibe implement-start --spec specs/auth-fix.md
+```
+
+Installed pre-commit hooks validate staged `specs/*.md` files and block specs that are missing required sections.
 
 For already-built projects, use forensic excavation instead of raw candidate review:
 

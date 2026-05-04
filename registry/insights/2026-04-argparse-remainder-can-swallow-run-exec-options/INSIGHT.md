@@ -14,6 +14,21 @@
   "summary": "Betavibe runtime capture initially defined run-exec command with argparse.REMAINDER immediately after run_id, causing --cwd/--no-fail to be captured as the child command instead of parsed as Betavibe options.",
   "prevention_signal": "When adding wrapper CLI commands that forward arbitrary child commands, test option parsing with parent options plus '--' and child flags like python -c before shipping.",
   "verify_trigger": "When changing Betavibe run-exec, capture wrappers, or argparse forwarding behavior.",
+  "concrete_evidence": "failed: pytest test_runtime_capture_records_failed_then_passing_command with FileNotFoundError '--cwd'; passed: python3 -m pytest -q => 15 passed",
+  "transferable_pattern": "When adding wrapper CLI commands that forward arbitrary child commands, test option parsing with parent options plus '--' and child flags like python -c before shipping.",
+  "domain_metadata": {
+    "tags": [
+      "betavibe",
+      "runtime-capture",
+      "argparse",
+      "cli"
+    ],
+    "tech_stack": [
+      "python"
+    ],
+    "source_kind": "manual"
+  },
+  "tech_versions_last_seen": {},
   "created_at": "2026-04-29",
   "last_verified_at": "2026-04-29",
   "source": {

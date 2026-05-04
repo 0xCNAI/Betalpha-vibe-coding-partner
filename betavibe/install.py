@@ -40,7 +40,9 @@ def contract_block(pack_path: str = ".") -> str:
 Use Betavibe as a low-friction debug immune system, not a logging ritual.
 
 - Before non-trivial spec/design: `{prefix}{base} recall "<task/context>"` (shortcut for `resolve pre_spec`)
+- Before writing any spec file: `{prefix}{base} spec-start --task "<task>" --context "<resolver output / meaningful hits>" --out specs/<name>.md`; all specs must keep the required sections so `spec-validate` can enforce them.
 - Before non-trivial implementation: `{prefix}{base} resolve pre_implement --context "<plan/files/risks>"`
+- Before implementing from a spec: `{prefix}{base} implement-start --spec <spec.md>`; fix invalid specs before editing.
 - During bug/debug work, run verification through `.betavibe/hooks/verify.sh --task "<task>" -- <test/build/lint/typecheck/smoke>` instead of running bare test commands. Use `--no-fail` for the initial known-failing reproduction so the session can continue; rerun the same task after the fix without `--no-fail`.
 - For meaningful verification commands outside installed hooks: `{prefix}{base} verify --task "<task>" --cwd {project_root} --repo {project_root} -- <test/build/lint/typecheck/smoke>`; same `--task` appends to one run for fail→fix→pass cycles.
 - After painful verified debugging: optionally run `should-capture`, then `.betavibe/hooks/learn.sh` or `{prefix}{base} learn`; `learn` creates pending drafts only — never promote without human approval. If the original failure was observed outside Betavibe but Tino says it is reusable, run `{prefix}{base} learn --force-pending` to create a review-only pending draft instead of losing the lesson.
@@ -210,6 +212,23 @@ REGISTRY="$PROJECT_ROOT/.betavibe/registry"
 PACK="$PROJECT_ROOT/{pack_path}"
 if [ -d "$PACK" ]; then
   cd "$PACK"
+  python3 -m betavibe --registry "$REGISTRY" spec-validate --repo "$PROJECT_ROOT" --staged
+  SPEC_STATUS=$?
+  if [ "$SPEC_STATUS" -ne 0 ]; then
+    cat <<'EOF'
+
+Betavibe blocked this commit because a staged spec is missing required sections.
+
+Start specs with:
+
+  python3 -m betavibe --registry .betavibe/registry spec-start --task "<task>" --out specs/<name>.md
+
+Then rerun:
+
+  python3 -m betavibe --registry .betavibe/registry spec-validate specs/<name>.md
+EOF
+    exit "$SPEC_STATUS"
+  fi
   python3 -m betavibe --registry "$REGISTRY" enforce --max-age-minutes 240 --mode {strict_flag}
   STATUS=$?
   cd "$PROJECT_ROOT"

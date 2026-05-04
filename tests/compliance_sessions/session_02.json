@@ -1,0 +1,7 @@
+{
+  "session_id": "g1-sim-02",
+  "harness": "claude-code",
+  "spec_written": true,
+  "spec_start_called": true,
+  "spec_path": "specs/schema-migration.md"
+}

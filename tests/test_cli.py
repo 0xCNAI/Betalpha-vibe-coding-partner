@@ -81,6 +81,57 @@ class CliTest(unittest.TestCase):
             self.assertTrue(pending)
             self.assertIn("schema", pending[0]["tags"])
 
+    def test_bench_mines_fix_cases_and_writes_json_report(self):
+        with tempfile.TemporaryDirectory() as td:
+            repo = Path(td) / "repo"
+            reg = Path(td) / "registry"
+            report = Path(td) / "bench_report.json"
+            repo.mkdir()
+            subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True)
+            subprocess.run(["git", "config", "user.email", "t@example.com"], cwd=repo, check=True)
+            subprocess.run(["git", "config", "user.name", "t"], cwd=repo, check=True)
+            for idx, name in enumerate(["auth_token.py", "schema_migration.py", "deploy_config.py"]):
+                (repo / name).write_text(f"version={idx}\n")
+                subprocess.run(["git", "add", name], cwd=repo, check=True)
+                subprocess.run(["git", "commit", "-m", f"fix {name} regression"], cwd=repo, check=True, capture_output=True)
+            self.run_cli(
+                "--registry", str(reg), "capture",
+                "--type", "pitfall",
+                "--title", "Auth token refresh needs replay verification",
+                "--summary", "Auth token refresh fixes need a replay verification because config-only checks can pass while sessions still fail.",
+                "--tags", "auth,token",
+                "--tech", "python",
+                "--symptom", "Auth sessions failed after token refresh.",
+                "--root-cause", "The fix did not replay an authenticated request.",
+                "--fix", "Replay an authenticated request after token refresh.",
+                "--prevention-signal", "Before modifying auth_token.py regression or adjacent auth token subsystem, inspect the original fixing commit.",
+                "--verify-trigger", "When auth token refresh logic changes.",
+            )
+            out = self.run_cli("--registry", str(reg), "bench", "--repo", str(repo), "--since", "10 years ago", "--min-cases", "3", "--out", str(report)).stdout
+            self.assertIn("bench report", out)
+            data = json.loads(report.read_text())
+            self.assertEqual(data["case_count"], 3)
+            self.assertEqual(data["null_control_count"], 1)
+            self.assertIn("metrics", data)
+            self.assertIn("pre_spec", data["phase_results"])
+            self.assertEqual(data["metrics"]["overall"]["total"], 8)
+            self.assertGreaterEqual(data["metrics"]["overall"]["hit_count"], 1)
+            null_rows = [row for rows in data["phase_results"].values() for row in rows if row["source"]["kind"] == "synthetic_null_control"]
+            self.assertTrue(null_rows)
+            self.assertTrue(all(row["outcome"] != "hit" for row in null_rows))
+            self.assertIn("task_description", data["cases"][0])
+            self.assertIn("actual_pitfall", data["cases"][0])
+
+    def test_bench_requires_normal_options_not_remainder_arguments(self):
+        proc = subprocess.run(
+            [sys.executable, "-m", "betavibe", "bench", "--since", "10 years ago", "--min-cases", "1"],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+        )
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("--repo", proc.stderr)
+
     def test_excavate_groups_fix_commit_with_context_and_evidence(self):
         with tempfile.TemporaryDirectory() as td:
             repo = Path(td) / "repo"
@@ -422,6 +473,102 @@ class CliTest(unittest.TestCase):
             self.assertEqual(metrics["per_insight_retrieval"][0][1], 2)
             text = self.run_cli("--registry", str(reg), "metrics").stdout
             self.assertIn("Top recalled insights", text)
+
+    def test_g3_telemetry_feedback_stats_doctor_and_auto_promote(self):
+        from betavibe.models import Insight
+        from betavibe.registry import write_insight, write_pending
+
+        with tempfile.TemporaryDirectory() as td:
+            reg = Path(td) / "registry"
+            stale = Insight(
+                title="Python CLI stale argparse forwarding lesson",
+                type="pitfall",
+                tags=["python", "cli"],
+                tech_stack=["python"],
+                summary="Argparse wrapper forwarding can regress when parent options are parsed after child commands.",
+                prevention_signal="Before changing Python CLI command forwarding, verify parent options around child command separators.",
+                verify_trigger="When Python CLI wrapper behavior changes.",
+                concrete_evidence="A wrapper swallowed parent flags after a forwarded command.",
+                transferable_pattern="Forwarding CLIs need explicit parser tests around child command separators.",
+                last_verified_at="2025-01-01",
+                body={"evidence": "test fixture"},
+            )
+            write_insight(stale, reg)
+
+            for _ in range(100):
+                self.run_cli("--registry", str(reg), "resolve", "pre_implement", "--context", "python cli argparse forwarding separator", "--no-gbrain", "--no-personal")
+            telemetry = reg / "telemetry" / "queries.jsonl"
+            self.assertTrue(telemetry.exists())
+            self.assertGreaterEqual(len(telemetry.read_text().splitlines()), 100)
+
+            for status in ["applied", "ignored", "false_positive", "ignored", "ignored"]:
+                self.run_cli("--registry", str(reg), "insight-feedback", stale.slug, status, "--context", "python cli argparse forwarding separator")
+            stats = json.loads(self.run_cli("--registry", str(reg), "insight-stats", stale.slug, "--json").stdout)
+            self.assertEqual(stats["slug"], stale.slug)
+            self.assertGreaterEqual(stats["retrievals"], 100)
+            self.assertEqual(stats["feedback"]["ignored"], 3)
+            self.assertEqual(stats["feedback"]["applied"], 1)
+            self.assertEqual(stats["feedback"]["false_positive"], 1)
+
+            pending = {
+                "id": f"pending-{stale.slug}",
+                "title": f"Pending follow-up for {stale.slug}",
+                "summary": "Repeated ignored CLI forwarding feedback reoccurred and should become reviewed guidance.",
+                "type": "pitfall",
+                "tags": ["python", "cli"],
+                "tech_stack": ["python"],
+                "score": 9,
+                "source": {"kind": "test"},
+                "draft": {
+                    "symptom": "Repeated resolver feedback said this CLI forwarding lesson was ignored.",
+                    "root_cause": "The pending lesson was not yet promoted despite repeated reoccurrence.",
+                    "fix": "Promote the candidate when the same ignored lesson reappears.",
+                    "prevention_signal": "Before repeated ignored CLI forwarding feedback reoccurs, promote the pending candidate for review.",
+                    "verify_trigger": "When feedback ignored count reaches three and the insight reappears.",
+                    "evidence": "test fixture",
+                },
+            }
+            write_pending(pending, reg)
+            out = self.run_cli("--registry", str(reg), "resolve", "pre_implement", "--context", "python cli argparse forwarding separator", "--no-gbrain", "--no-personal").stdout
+            self.assertIn("auto-promoted pending candidate", out)
+            self.assertFalse((reg / "pending" / f"{pending['id']}.json").exists())
+
+            doctor = self.run_cli("--registry", str(reg), "doctor").stdout
+            self.assertIn("stale insights >6mo", doctor)
+            self.assertIn(stale.slug, doctor)
+            self.assertIn("outdated-tech-check-needed", doctor)
+
+    def test_g3_insight_stats_are_correct_on_five_sample_ids(self):
+        from betavibe.models import Insight
+        from betavibe.registry import write_insight
+
+        with tempfile.TemporaryDirectory() as td:
+            reg = Path(td) / "registry"
+            slugs = []
+            for idx in range(5):
+                insight = Insight(
+                    title=f"Sample telemetry insight {idx}",
+                    type="pitfall",
+                    tags=[f"sample{idx}"],
+                    tech_stack=["python"],
+                    summary=f"Sample telemetry insight {idx} has concrete evidence for stats verification.",
+                    prevention_signal=f"Before changing sample{idx} subsystem, verify telemetry stats count the matching insight.",
+                    verify_trigger=f"When sample{idx} subsystem changes.",
+                    concrete_evidence=f"sample{idx} evidence",
+                    transferable_pattern=f"sample{idx} telemetry stats should count retrieval and feedback exactly.",
+                    tech_versions_last_seen={"python": "3.11"},
+                    body={"evidence": f"sample{idx} evidence"},
+                )
+                write_insight(insight, reg)
+                slugs.append(insight.slug)
+                self.run_cli("--registry", str(reg), "resolve", "pre_implement", "--context", f"sample{idx} telemetry stats", "--no-gbrain", "--no-personal")
+                for _ in range(idx + 1):
+                    self.run_cli("--registry", str(reg), "insight-feedback", insight.slug, "applied")
+
+            for idx, slug in enumerate(slugs):
+                stats = json.loads(self.run_cli("--registry", str(reg), "insight-stats", slug, "--json").stdout)
+                self.assertGreaterEqual(stats["retrievals"], 1)
+                self.assertEqual(stats["feedback"]["applied"], idx + 1)
 
     def test_auto_profile_detects_ops_workspace_and_skips_extra_harness_files_and_enforcement(self):
         with tempfile.TemporaryDirectory() as td:

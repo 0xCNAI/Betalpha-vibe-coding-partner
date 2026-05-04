@@ -20,11 +20,12 @@ Do **not** store routine notes, guesses, generic advice, or raw chat logs.
 
 Use these resolvers at the natural points in your work.
 
-### 1. `pre_spec` — before writing a spec
+### 1. `spec-start` + `pre_spec` — before writing a spec
 
 When you are about to design a feature, integration, migration, automation, infra change, or non-trivial refactor:
 
 ```bash
+python3 -m betavibe spec-start --task "<task>" --context "<concrete task, files, tools, APIs, error messages>" --out specs/<name>.md
 python3 -m betavibe resolve pre_spec --context "<concrete task, files, tools, APIs, error messages>"
 ```
 
@@ -33,13 +34,16 @@ Then:
 1. Read the top relevant insight files.
 2. Convert relevant `prevention_signal` fields into spec checklist items.
 3. Adjust tool choice / architecture if the insight clearly applies.
-4. Mention only meaningful hits to the human. Do not spam loose matches.
+4. Keep the required spec sections: `Task`, `Relevant Betavibe Insights`, `Spec Guardrails`, `Implementation Plan`, `Verification Plan`.
+5. Run `python3 -m betavibe spec-validate specs/<name>.md` before implementation.
+6. Mention only meaningful hits to the human. Do not spam loose matches.
 
 ### 2. `pre_implement` — before editing code
 
 Before changing code for a non-trivial task:
 
 ```bash
+python3 -m betavibe implement-start --spec specs/<name>.md
 python3 -m betavibe resolve pre_implement --context "<implementation plan + touched files>"
 ```
 

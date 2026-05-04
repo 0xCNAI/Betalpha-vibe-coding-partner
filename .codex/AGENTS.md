@@ -5,7 +5,10 @@ Follow `../AGENTS.md`.
 Before specs or implementation, call the resolver commands instead of waiting for the user:
 
 ```bash
+python3 -m betavibe spec-start --task "<task>" --context "<task>" --out specs/<name>.md
 python3 -m betavibe resolve pre_spec --context "<task>"
+python3 -m betavibe spec-validate specs/<name>.md
+python3 -m betavibe implement-start --spec specs/<name>.md
 python3 -m betavibe resolve pre_implement --context "<plan/files>"
 ```
 

@@ -18,11 +18,27 @@ class Insight:
     summary: str
     prevention_signal: str
     verify_trigger: str
+    concrete_evidence: str = ""
+    transferable_pattern: str = ""
+    domain_metadata: dict[str, Any] = field(default_factory=dict)
+    tech_versions_last_seen: dict[str, str] = field(default_factory=dict)
     created_at: str = field(default_factory=lambda: date.today().isoformat())
     last_verified_at: str = field(default_factory=lambda: date.today().isoformat())
     source: dict[str, Any] = field(default_factory=dict)
     body: dict[str, str] = field(default_factory=dict)
     path: Path | None = None
+
+    def __post_init__(self) -> None:
+        if not self.concrete_evidence:
+            self.concrete_evidence = str(self.body.get("evidence") or self.summary)
+        if not self.transferable_pattern:
+            self.transferable_pattern = str(self.body.get("pattern") or self.prevention_signal)
+        if not self.domain_metadata:
+            self.domain_metadata = {
+                "tags": self.tags,
+                "tech_stack": self.tech_stack,
+                "source_kind": self.source.get("kind"),
+            }
 
     @property
     def slug(self) -> str:
@@ -42,6 +58,10 @@ class Insight:
             errors.append("prevention_signal too short / vague")
         if not self.verify_trigger.strip():
             errors.append("verify_trigger required; use 'never' only if truly stable")
+        if not self.concrete_evidence.strip():
+            errors.append("concrete_evidence required")
+        if not self.transferable_pattern.strip():
+            errors.append("transferable_pattern required")
         for field_name in ("created_at", "last_verified_at"):
             try:
                 date.fromisoformat(getattr(self, field_name))
@@ -58,6 +78,10 @@ class Insight:
             "summary": self.summary,
             "prevention_signal": self.prevention_signal,
             "verify_trigger": self.verify_trigger,
+            "concrete_evidence": self.concrete_evidence,
+            "transferable_pattern": self.transferable_pattern,
+            "domain_metadata": self.domain_metadata,
+            "tech_versions_last_seen": self.tech_versions_last_seen,
             "created_at": self.created_at,
             "last_verified_at": self.last_verified_at,
             "source": self.source,
@@ -83,7 +107,16 @@ class Insight:
     def from_markdown(cls, text: str, path: Path | None = None) -> "Insight":
         if not text.startswith("---\n"):
             raise ValueError("missing frontmatter")
-        _, raw, body_text = text.split("---", 2)
+        lines = text.splitlines(keepends=True)
+        end_index = None
+        for idx, line in enumerate(lines[1:], start=1):
+            if line.strip() == "---":
+                end_index = idx
+                break
+        if end_index is None:
+            raise ValueError("missing closing frontmatter")
+        raw = "".join(lines[1:end_index])
+        body_text = "".join(lines[end_index + 1:])
         data = json.loads(raw)
         body = parse_sections(body_text)
         return cls(
@@ -94,6 +127,10 @@ class Insight:
             summary=data["summary"],
             prevention_signal=data["prevention_signal"],
             verify_trigger=data["verify_trigger"],
+            concrete_evidence=str(data.get("concrete_evidence") or body.get("evidence") or data.get("summary") or ""),
+            transferable_pattern=str(data.get("transferable_pattern") or body.get("pattern") or data.get("prevention_signal") or ""),
+            domain_metadata=dict(data.get("domain_metadata") or {}),
+            tech_versions_last_seen=dict(data.get("tech_versions_last_seen") or data.get("domain_metadata", {}).get("tech_versions_last_seen") or {}),
             created_at=str(data.get("created_at") or date.today().isoformat()),
             last_verified_at=str(data.get("last_verified_at") or data.get("created_at") or date.today().isoformat()),
             source=dict(data.get("source") or {}),

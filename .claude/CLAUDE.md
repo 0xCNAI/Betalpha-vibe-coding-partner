@@ -5,7 +5,10 @@ Follow `../AGENTS.md`.
 Use lifecycle resolvers automatically:
 
 ```bash
+python3 -m betavibe spec-start --task "<task>" --context "<task>" --out specs/<name>.md
 python3 -m betavibe resolve pre_spec --context "<task>"
+python3 -m betavibe spec-validate specs/<name>.md
+python3 -m betavibe implement-start --spec specs/<name>.md
 python3 -m betavibe resolve pre_implement --context "<plan/files>"
 python3 -m betavibe should-capture --debug-minutes <n> --attempts <n> --had-error-log --final-fix-verified --context "<bug>"
 ```
