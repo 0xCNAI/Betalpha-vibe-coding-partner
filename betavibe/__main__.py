@@ -16,6 +16,7 @@ from .sync import commit_registry
 from .runtime_capture import start_run, run_command, finish_run, verify_command, learn_from_run
 from .enforce import check_runtime_required
 from .usage import log_resolver_event, log_journal_event, summarize_usage, format_metrics
+from .acceptance import run_acceptance_demo
 
 
 def csv(value: str | None) -> list[str]:
@@ -680,6 +681,8 @@ def cmd_self_test(args) -> int:
         project / ".betavibe" / "hooks" / "pre_spec.sh",
         project / ".betavibe" / "hooks" / "pre_implement.sh",
         project / ".betavibe" / "hooks" / "should_capture.sh",
+        project / ".betavibe" / "hooks" / "verify.sh",
+        project / ".betavibe" / "hooks" / "learn.sh",
     ]
     for path in required:
         ok = path.exists()
@@ -707,6 +710,18 @@ def cmd_self_test(args) -> int:
         return 0
     print("Betavibe install self-test failed.")
     return 1
+
+
+def cmd_acceptance_demo(args) -> int:
+    result = run_acceptance_demo(Path(args.project), out=Path(args.out) if args.out else None, force=args.force)
+    print(f"acceptance demo report: {result.report}")
+    print(f"project: {result.project}")
+    print(f"runtime run: {result.run_id}")
+    print(f"pending artifact: {result.pending_artifact}")
+    print(f"promoted insight: {result.insight_path}")
+    print(f"pre_spec output: {result.pre_spec_output}")
+    print(f"pre_implement output: {result.pre_implement_output}")
+    return 0
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="betavibe", description="Betalpha Vibe Coding Partner CLI")
@@ -929,6 +944,12 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("self-test")
     p.add_argument("--project", help="Project root to verify; defaults to current directory")
     p.set_defaults(func=cmd_self_test)
+
+    p = sub.add_parser("acceptance-demo")
+    p.add_argument("project", help="Empty or non-existent project directory to create for the acceptance demo")
+    p.add_argument("--out", help="Markdown report path; defaults to <project>/.betavibe/reports/acceptance-*/report.md")
+    p.add_argument("--force", action="store_true", help="Delete and recreate project if it already exists")
+    p.set_defaults(func=cmd_acceptance_demo)
     return parser
 
 

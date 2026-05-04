@@ -50,10 +50,16 @@ class InstallContractTest(unittest.TestCase):
                 ".betavibe/hooks/pre_spec.sh",
                 ".betavibe/hooks/pre_implement.sh",
                 ".betavibe/hooks/should_capture.sh",
+                ".betavibe/hooks/verify.sh",
+                ".betavibe/hooks/learn.sh",
             ]:
                 self.assertTrue((project / rel).exists(), rel)
             hook = (project / ".betavibe/hooks/pre_implement.sh").read_text()
             self.assertIn('--registry "$PROJECT_ROOT/.betavibe/registry"', hook)
+            verify_hook = (project / ".betavibe/hooks/verify.sh").read_text()
+            self.assertIn('verify --cwd "$PROJECT_ROOT" --repo "$PROJECT_ROOT"', verify_hook)
+            learn_hook = (project / ".betavibe/hooks/learn.sh").read_text()
+            self.assertIn('learn "$@"', learn_hook)
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -25,6 +26,16 @@ class GBrainStatus:
     binary: str | None = None
 
 
+def _timeout(default: float = 4.0) -> float:
+    raw = os.environ.get("BETAVIBE_GBRAIN_TIMEOUT_SEC")
+    if not raw:
+        return default
+    try:
+        return max(0.5, float(raw))
+    except ValueError:
+        return default
+
+
 def status() -> GBrainStatus:
     binary = shutil.which("gbrain")
     if not binary:
@@ -36,7 +47,7 @@ def status() -> GBrainStatus:
             binary=None,
         )
     try:
-        proc = subprocess.run(["gbrain", "doctor", "--fast", "--json"], capture_output=True, text=True, timeout=20)
+        proc = subprocess.run(["gbrain", "doctor", "--fast", "--json"], capture_output=True, text=True, timeout=_timeout())
     except Exception as exc:
         return GBrainStatus(True, False, f"gbrain doctor failed to run: {exc}", "Run `gbrain doctor` manually and fix the reported setup issue.", binary=binary)
     if proc.returncode == 0:
@@ -58,7 +69,7 @@ def query(question: str, limit: int = 5) -> list[GBrainHit]:
             ["gbrain", "query", question, "--limit", str(limit), "--detail", "low"],
             capture_output=True,
             text=True,
-            timeout=45,
+            timeout=_timeout(),
             check=False,
         )
     except Exception:
@@ -126,12 +137,14 @@ def sync_insight(insight: Insight) -> str | None:
     slug = "dev-insights/" + insight.slug
     content = insight_to_gbrain_markdown(insight)
     try:
-        subprocess.run(["gbrain", "put", slug], input=content, capture_output=True, text=True, timeout=45, check=True)
+        subprocess.run(["gbrain", "put", slug], input=content, capture_output=True, text=True, timeout=_timeout(), check=True)
         try:
-            subprocess.run(["gbrain", "embed", slug], capture_output=True, text=True, timeout=45, check=False)
+            subprocess.run(["gbrain", "embed", slug], capture_output=True, text=True, timeout=_timeout(), check=False)
         except Exception:
             pass
         return slug
+    except subprocess.TimeoutExpired:
+        return None
     except Exception:
         # fallback: import via temporary directory for older gbrain put behavior
         try:
@@ -139,7 +152,9 @@ def sync_insight(insight: Insight) -> str | None:
                 root = Path(td) / "dev-insights"
                 root.mkdir(parents=True, exist_ok=True)
                 (root / f"{insight.slug}.md").write_text(content, encoding="utf-8")
-                subprocess.run(["gbrain", "import", td], capture_output=True, text=True, timeout=60, check=True)
+                subprocess.run(["gbrain", "import", td], capture_output=True, text=True, timeout=_timeout(), check=True)
             return slug
+        except subprocess.TimeoutExpired:
+            return None
         except Exception:
             return None

@@ -38,6 +38,21 @@ Use results to adjust file plan, tests, migration/deploy sequence, and tool choi
 
 ## After painful debugging
 
+For bug/debug work, prefer capturing the reproduction and final verification through the installed hook instead of running bare test commands:
+
+```bash
+.betavibe/hooks/verify.sh --task "<task>" --no-fail -- <failing reproduction/test/build command>
+.betavibe/hooks/verify.sh --task "<task>" -- <passing verification command>
+```
+
+After the fix is verified, run:
+
+```bash
+.betavibe/hooks/learn.sh
+```
+
+`learn` creates a review-only pending lesson. It must not promote reviewed insights or sync GBrain without human approval.
+
 Run `should-capture` when any of these happened:
 
 - ~20+ minutes debugging

@@ -34,6 +34,87 @@ python3 -m betavibe install --project /path/to/project --pack-path Betalpha-vibe
 
 If no shared registry is configured, it uses local `registry/`.
 
+## Install and use by harness
+
+The installer writes managed instruction blocks instead of replacing your existing files. In normal product repos, one install prepares all instruction-file based harnesses:
+
+```bash
+python3 -m betavibe install --project /path/to/project --pack-path Betalpha-vibe-coding-partner --self-test
+```
+
+### Codex
+
+Codex reads the root `AGENTS.md` and the generated `.codex/AGENTS.md`.
+
+Installed files:
+
+- `AGENTS.md`
+- `.codex/AGENTS.md`
+- `.betavibe/hooks/pre_spec.sh`
+- `.betavibe/hooks/pre_implement.sh`
+- `.betavibe/hooks/verify.sh`
+- `.betavibe/hooks/learn.sh`
+
+Expected agent behavior:
+
+```bash
+.betavibe/hooks/pre_spec.sh "<task/context>"
+.betavibe/hooks/pre_implement.sh "<plan/files/risks>"
+.betavibe/hooks/verify.sh --task "<bug task>" --no-fail -- <failing reproduction>
+.betavibe/hooks/verify.sh --task "<bug task>" -- <passing verification>
+.betavibe/hooks/learn.sh
+```
+
+`learn.sh` creates a pending lesson only. Codex must ask before `promote` or `capture --sync-gbrain`.
+
+### Claude Code
+
+Claude Code reads `CLAUDE.md`, `.claude/CLAUDE.md`, and the installed skill.
+
+Installed files:
+
+- `CLAUDE.md`
+- `.claude/CLAUDE.md`
+- `.claude/skills/betavibe-insight/SKILL.md`
+- `skills/betavibe-insight/SKILL.md`
+- `.betavibe/hooks/*.sh`
+
+Expected agent behavior is the same lifecycle as Codex: run resolver hooks before spec/implementation, use `verify.sh` for failing and passing debug evidence, then `learn.sh` to create a human-reviewable pending lesson.
+
+### OpenClaw
+
+OpenClaw can use the same installed `AGENTS.md` contract. For stronger automatic behavior, enable the lifecycle plugin after installing Betavibe into the target project:
+
+```bash
+openclaw plugins install --link --dangerously-force-unsafe-install /path/to/project/Betalpha-vibe-coding-partner/adapters/openclaw/betavibe-lifecycle-plugin
+openclaw plugins enable betavibe-lifecycle
+openclaw config set plugins.entries.betavibe-lifecycle '{
+  "enabled": true,
+  "hooks": { "allowConversationAccess": true },
+  "config": {
+    "projectRoot": "/path/to/project",
+    "betavibePath": "/path/to/project/Betalpha-vibe-coding-partner",
+    "registry": "/path/to/project/.betavibe/registry",
+    "enabled": true,
+    "maxResolveMs": 2500,
+    "maxPromptChars": 3500,
+    "minDebugMinutes": 20,
+    "maxSessionChecksMs": 3000,
+    "dryRun": true
+  }
+}' --strict-json --merge
+openclaw gateway restart
+```
+
+Verify OpenClaw wiring:
+
+```bash
+openclaw plugins inspect betavibe-lifecycle --json
+cat /path/to/project/.betavibe/lifecycle-events.jsonl
+```
+
+The plugin injects resolver context before coding/spec turns and checks whether a debugging session should be captured. It does not write reviewed insights automatically.
+
 ## Agent-facing contract
 
 Agents should read the root managed contract and/or the installed `betavibe-insight` skill, then use resolver commands automatically:
@@ -88,6 +169,14 @@ python3 -m betavibe dogfood /path/to/project --out /tmp/betavibe-dogfood.md
 ```
 
 `dogfood` mines local git history, writes pending candidates, probes `pre_spec` and `pre_implement` resolver behavior, and emits a markdown report. It does not need GitHub, GBrain, or network access unless `--with-github` is explicitly passed.
+
+Run an end-to-end acceptance demo that proves the installed workflow:
+
+```bash
+python3 -m betavibe acceptance-demo /tmp/betavibe-acceptance --force
+```
+
+`acceptance-demo` creates a temporary git project, installs Betavibe, reproduces a failing test through `.betavibe/hooks/verify.sh`, fixes it, captures the passing verification, runs `.betavibe/hooks/learn.sh`, preserves the pending runtime lesson as an artifact, simulates human approval by promoting it without GBrain sync, and writes a report with Codex / Claude Code / OpenClaw installation evidence plus `pre_spec` and `pre_implement` resolver output.
 
 For already-built projects, use forensic excavation instead of raw candidate review:
 

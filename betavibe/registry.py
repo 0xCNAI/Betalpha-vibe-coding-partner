@@ -18,7 +18,11 @@ def _nearest_project_registry(start: Path | None = None) -> Path | None:
     still lands in the project registry.
     """
 
-    cursor = (start or Path.cwd()).resolve()
+    # Keep the lexical cwd path instead of resolving symlinks. macOS commonly
+    # exposes temp paths as both /var/... and /private/var/...; returning the
+    # resolved variant makes registry discovery surprising and breaks equality
+    # with paths handed to the process by the caller.
+    cursor = (start or Path.cwd()).absolute()
     for parent in (cursor, *cursor.parents):
         marker = parent / ".betavibe"
         if marker.exists():

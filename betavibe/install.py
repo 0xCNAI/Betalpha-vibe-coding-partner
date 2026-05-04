@@ -41,8 +41,9 @@ Use Betavibe as a low-friction debug immune system, not a logging ritual.
 
 - Before non-trivial spec/design: `{prefix}{base} recall "<task/context>"` (shortcut for `resolve pre_spec`)
 - Before non-trivial implementation: `{prefix}{base} resolve pre_implement --context "<plan/files/risks>"`
-- For meaningful verification commands: `{prefix}{base} verify --task "<task>" --cwd {project_root} --repo {project_root} -- <test/build/lint/typecheck/smoke>`; same `--task` appends to one run for fail→fix→pass cycles.
-- After painful verified debugging: optionally run `should-capture`, then `{prefix}{base} learn`; `learn` creates pending drafts only — never promote without human approval. If the original failure was observed outside Betavibe but Tino says it is reusable, run `{prefix}{base} learn --force-pending` to create a review-only pending draft instead of losing the lesson.
+- During bug/debug work, run verification through `.betavibe/hooks/verify.sh --task "<task>" -- <test/build/lint/typecheck/smoke>` instead of running bare test commands. Use `--no-fail` for the initial known-failing reproduction so the session can continue; rerun the same task after the fix without `--no-fail`.
+- For meaningful verification commands outside installed hooks: `{prefix}{base} verify --task "<task>" --cwd {project_root} --repo {project_root} -- <test/build/lint/typecheck/smoke>`; same `--task` appends to one run for fail→fix→pass cycles.
+- After painful verified debugging: optionally run `should-capture`, then `.betavibe/hooks/learn.sh` or `{prefix}{base} learn`; `learn` creates pending drafts only — never promote without human approval. If the original failure was observed outside Betavibe but Tino says it is reusable, run `{prefix}{base} learn --force-pending` to create a review-only pending draft instead of losing the lesson.
 - If recall missed a lesson that should exist: `{prefix}{base} journal --task "<task>" --miss "<missing lesson>"`
 
 Memory placement: project-specific lessons stay in this repo's `.betavibe/registry`; portable cross-repo lessons stay in `~/.betavibe/personal`; GBrain is optional semantic federation, not the source of truth. Store an insight where the fix lives: code -> source repo, config/cron/env -> ops repo, truly portable -> personal.
@@ -301,6 +302,20 @@ PROJECT_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$PROJECT_ROOT"
 cd {pack_path!r}
 python3 -m betavibe --registry "$PROJECT_ROOT/.betavibe/registry" should-capture "$@"
+""",
+        "verify.sh": f"""#!/usr/bin/env bash
+set -euo pipefail
+PROJECT_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+cd "$PROJECT_ROOT"
+cd {pack_path!r}
+python3 -m betavibe --registry "$PROJECT_ROOT/.betavibe/registry" verify --cwd "$PROJECT_ROOT" --repo "$PROJECT_ROOT" "$@"
+""",
+        "learn.sh": f"""#!/usr/bin/env bash
+set -euo pipefail
+PROJECT_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+cd "$PROJECT_ROOT"
+cd {pack_path!r}
+python3 -m betavibe --registry "$PROJECT_ROOT/.betavibe/registry" learn "$@"
 """,
     }
     changed: list[Path] = []

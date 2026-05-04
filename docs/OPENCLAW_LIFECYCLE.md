@@ -32,7 +32,7 @@ openclaw config set plugins.entries.betavibe-lifecycle '{
   "config": {
     "projectRoot": "/path/to/project",
     "betavibePath": "/path/to/project/Betalpha-vibe-coding-partner",
-    "registry": "/path/to/project/Betalpha-vibe-coding-partner/registry",
+    "registry": "/path/to/project/.betavibe/registry",
     "enabled": true,
     "maxResolveMs": 2500,
     "maxPromptChars": 3500,

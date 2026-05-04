@@ -47,7 +47,22 @@ Use results to avoid known wrong paths and pick stable tools.
 
 ### 3. `post_debug` — after solving a painful bug
 
-When a session involved substantial debugging, failed attempts, repeated errors, rollback, CI failure, migration issue, auth/config/deploy issue, or any “we finally found it” moment:
+When a session involves a bug, regression, failing test, repeated error, rollback, CI failure, migration issue, auth/config/deploy issue, or any “we finally found it” moment, capture the reproduction and verification through Betavibe instead of running bare test/build commands:
+
+```bash
+.betavibe/hooks/verify.sh --task "<task>" --no-fail -- <failing reproduction/test/build command>
+.betavibe/hooks/verify.sh --task "<task>" -- <passing verification command>
+```
+
+After the fix is verified, create a review-only pending lesson:
+
+```bash
+.betavibe/hooks/learn.sh
+```
+
+`learn` must only create pending drafts. Do not promote reviewed insights or sync GBrain until the human approves.
+
+When a session involved substantial debugging, failed attempts, repeated errors, rollback, CI failure, migration issue, auth/config/deploy issue, or any “we finally found it” moment, also run:
 
 ```bash
 python3 -m betavibe should-capture \
