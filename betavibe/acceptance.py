@@ -30,6 +30,18 @@ def run(cmd: list[str], cwd: Path, check: bool = True, timeout: int = 30) -> sub
     return subprocess.run(cmd, cwd=cwd, text=True, capture_output=True, check=check, timeout=timeout)
 
 
+def clear_python_bytecode(project: Path) -> None:
+    shutil.rmtree(project / "__pycache__", ignore_errors=True)
+    if sys.pycache_prefix:
+        prefix = Path(sys.pycache_prefix)
+        for root in {project.absolute(), project.resolve()}:
+            try:
+                cache_root = prefix / root.relative_to(root.anchor)
+            except ValueError:
+                continue
+            shutil.rmtree(cache_root, ignore_errors=True)
+
+
 def write(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
@@ -250,6 +262,7 @@ def run_acceptance_demo(project: Path, out: Path | None = None, force: bool = Fa
 
     task = "fix calculator regression with betavibe acceptance demo"
     fail = run([str(project / ".betavibe" / "hooks" / "verify.sh"), "--task", task, "--harness", "codex", "--no-fail", "--", sys.executable, "-m", "unittest", "-v"], cwd=project)
+    clear_python_bytecode(project)
     write(project / "calc.py", "def add(a, b):\n    return a + b\n")
     passed = run([str(project / ".betavibe" / "hooks" / "verify.sh"), "--task", task, "--harness", "codex", "--", sys.executable, "-m", "unittest", "-v"], cwd=project)
     learned = run([str(project / ".betavibe" / "hooks" / "learn.sh")], cwd=project)
