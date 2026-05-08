@@ -617,16 +617,19 @@ def cmd_resolve(args) -> int:
     # scoring with generic filler tokens. Phase-aware filtering happens via insight.type
     # bias below, not via query concatenation.
     query = args.context
-    hits = hybrid_search_insights(registry, insights, query, limit=args.limit)
-    hits = _apply_phase_type_bias(args.phase, hits)
+    # Retrieval is the observability boundary — every hit returned by search is
+    # recorded in telemetry regardless of injection policy.
+    all_hits = hybrid_search_insights(registry, insights, query, limit=args.limit)
+    all_hits = _apply_phase_type_bias(args.phase, all_hits)
 
-    # Min-score gate: avoid injecting low-confidence false positives that pollute
-    # spec context. Empirically, hit queries average ~0.56 and miss queries average
-    # ~0.47, so 0.45 is a permissive cutoff. Hits that fall below the gate are
-    # dropped silently; the synthesis section already handles the empty case.
+    # Min-score gate is injection policy: which hits are surfaced to the agent
+    # for spec/implementation guidance. Dropped hits stay in telemetry so
+    # analytics can see how often the gate fires.
     min_score = getattr(args, "min_score", 0.45)
     if min_score > 0:
-        hits = [h for h in hits if h[0] >= min_score]
+        hits = [h for h in all_hits if h[0] >= min_score]
+    else:
+        hits = list(all_hits)
     print(f"resolver: {args.phase}")
     print(f"context: {args.context}")
     print("")
@@ -664,10 +667,21 @@ def cmd_resolve(args) -> int:
             print("  " + h.snippet.replace("\n", "\n  ")[:500])
         print("")
 
-    local_hit_rows = [{"score": score, "slug": insight.slug, "title": insight.title, "type": insight.type, "path": str(insight.path) if insight.path else None, "scope": "personal" if "portable" in insight.tags else "repo"} for score, insight, matched in hits]
+    local_hit_rows = [
+        {
+            "score": score,
+            "slug": insight.slug,
+            "title": insight.title,
+            "type": insight.type,
+            "path": str(insight.path) if insight.path else None,
+            "scope": "personal" if "portable" in insight.tags else "repo",
+            "gated": score < min_score if min_score > 0 else False,
+        }
+        for score, insight, matched in all_hits
+    ]
     gbrain_hit_rows = [{"slug": h.slug, "score": h.score, "stale": h.stale} for h in gbrain_hits]
     log_resolver_event(registry, phase=args.phase, context=args.context, local_hits=local_hit_rows, gbrain_hits=gbrain_hit_rows, harness=os.environ.get("BETAVIBE_HARNESS"))
-    promoted = _auto_promote_reoccurred_ignored(registry, [row["slug"] for row in local_hit_rows])
+    promoted = _auto_promote_reoccurred_ignored(registry, [insight.slug for score, insight, matched in hits])
     for path in promoted:
         print(f"auto-promoted pending candidate after repeated ignored feedback: {path}")
 
