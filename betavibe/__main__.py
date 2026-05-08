@@ -124,12 +124,29 @@ def _candidate_context(candidates: list[dict], fallback: str) -> str:
     return "\n".join(lines)
 
 
+PHASE_TYPE_BIAS = {
+    "pre_spec": {"spec_guardrail", "decision", "pattern", "tool_choice"},
+    "pre_implement": {"pitfall", "pattern", "tool_choice"},
+    "post_debug": {"pitfall"},
+    "post_session": {"decision", "pattern", "tool_choice", "spec_guardrail"},
+}
+
+
+def _apply_phase_type_bias(phase: str, hits: list[tuple[float, Insight, list[str]]]) -> list[tuple[float, Insight, list[str]]]:
+    preferred_types = PHASE_TYPE_BIAS.get(phase, set())
+    if not preferred_types:
+        return hits
+    return sorted(
+        hits,
+        key=lambda h: (h[1].type in preferred_types, h[0]),
+        reverse=True,
+    )
+
+
 def _local_resolver_section(phase: str, context: str, insights: list[Insight], limit: int = 5) -> str:
-    phase_terms = {
-        "pre_spec": "spec guardrail decision pattern tool choice architecture migration integration",
-        "pre_implement": "pitfall wrong paths fix implementation test deploy config migration",
-    }
-    hits = search_insights(insights, f"{context} {phase_terms.get(phase, '')}", limit=limit)
+    # Keep runtime resolver queries pure: generic phase terms corrupt lexical and
+    # semantic ranking. Phase awareness belongs in type bias, not query text.
+    hits = _apply_phase_type_bias(phase, search_insights(insights, context, limit=limit))
     lines = [f"### {phase}", "", "```text", context, "```", ""]
     if not hits:
         lines.extend([
@@ -596,14 +613,20 @@ def cmd_insight_stats(args) -> int:
 def cmd_resolve(args) -> int:
     registry = resolve_registry(args.registry)
     insights = list_scoped_insights(registry, include_personal=not getattr(args, "no_personal", False))
-    phase_terms = {
-        "pre_spec": "spec guardrail decision pattern tool choice architecture migration integration",
-        "pre_implement": "pitfall wrong paths fix implementation test deploy config migration",
-        "post_debug": "pitfall bug fix root cause wrong paths error regression timeout failure",
-        "post_session": "decision pattern tool choice spec guardrail reusable lesson",
-    }
-    query = f"{args.context} {phase_terms.get(args.phase, '')}"
+    # phase_terms removed from query construction — they were corrupting BM25/semantic
+    # scoring with generic filler tokens. Phase-aware filtering happens via insight.type
+    # bias below, not via query concatenation.
+    query = args.context
     hits = hybrid_search_insights(registry, insights, query, limit=args.limit)
+    hits = _apply_phase_type_bias(args.phase, hits)
+
+    # Min-score gate: avoid injecting low-confidence false positives that pollute
+    # spec context. Empirically, hit queries average ~0.56 and miss queries average
+    # ~0.47, so 0.45 is a permissive cutoff. Hits that fall below the gate are
+    # dropped silently; the synthesis section already handles the empty case.
+    min_score = getattr(args, "min_score", 0.45)
+    if min_score > 0:
+        hits = [h for h in hits if h[0] >= min_score]
     print(f"resolver: {args.phase}")
     print(f"context: {args.context}")
     print("")
@@ -1136,6 +1159,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("phase", choices=["pre_spec", "pre_implement", "post_debug", "post_session"])
     p.add_argument("--context", required=True)
     p.add_argument("--limit", type=int, default=5)
+    p.add_argument(
+        "--min-score",
+        type=float,
+        default=0.45,
+        help="Drop hits below this hybrid score (default 0.45). Set to 0 to disable.",
+    )
     p.add_argument("--gbrain-limit", type=int, default=3)
     p.add_argument("--no-gbrain", action="store_true")
     p.add_argument("--no-personal", action="store_true", help="Do not include ~/.betavibe/personal portable insights")
