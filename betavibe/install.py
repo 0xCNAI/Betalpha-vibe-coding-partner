@@ -29,28 +29,25 @@ def _registry_rel_from_pack(pack_path: str) -> str:
 
 
 def contract_block(pack_path: str = ".") -> str:
-    p = pack_path.rstrip("/") or "."
-    prefix = f"cd {p} && " if p != "." else ""
-    registry = _registry_rel_from_pack(p)
-    project_root = _project_rel_from_pack(p)
-    base = f"python3 -m betavibe --registry {registry}"
+    """Return the slim always-on root contract.
+
+    The root contract is intentionally command-free. Detailed resolver,
+    verification, capture, runtime enforcement, and vendored-pack registry
+    instructions live in the installed betavibe-insight skill so unrelated
+    sessions do not pay that context cost.
+    """
     return f"""{START}
 # Betalpha Vibe Coding Partner
 
-Use Betavibe as a low-friction debug immune system, not a logging ritual.
+Betavibe details live in the installed `betavibe-insight` skill. Keep this root contract as trigger timing only.
 
-- Before non-trivial spec/design: `{prefix}{base} recall "<task/context>"` (shortcut for `resolve pre_spec`)
-- Before writing any spec file: `{prefix}{base} spec-start --task "<task>" --context "<resolver output / meaningful hits>" --out specs/<name>.md`; all specs must keep the required sections so `spec-validate` can enforce them.
-- Before non-trivial implementation: `{prefix}{base} resolve pre_implement --context "<plan/files/risks>"`
-- Before implementing from a spec: `{prefix}{base} implement-start --spec <spec.md>`; fix invalid specs before editing.
-- During bug/debug work, run verification through `.betavibe/hooks/verify.sh --task "<task>" -- <test/build/lint/typecheck/smoke>` instead of running bare test commands. Use `--no-fail` for the initial known-failing reproduction so the session can continue; rerun the same task after the fix without `--no-fail`.
-- For meaningful verification commands outside installed hooks: `{prefix}{base} verify --task "<task>" --cwd {project_root} --repo {project_root} -- <test/build/lint/typecheck/smoke>`; same `--task` appends to one run for fail→fix→pass cycles.
-- After painful verified debugging: optionally run `should-capture`, then `.betavibe/hooks/learn.sh` or `{prefix}{base} learn`; `learn` creates pending drafts only — never promote without human approval. If the original failure was observed outside Betavibe but Tino says it is reusable, run `{prefix}{base} learn --force-pending` to create a review-only pending draft instead of losing the lesson.
-- If recall missed a lesson that should exist: `{prefix}{base} journal --task "<task>" --miss "<missing lesson>"`
+Use the skill when doing non-trivial coding/spec/debug work:
+- before drafting or implementing specs/designs;
+- before non-trivial implementation or migration/config changes;
+- during painful debugging, fail→fix→pass verification, or reusable root-cause lessons;
+- for CI/deploy/auth/webhook/cron/database/schema/external API issues.
 
-Memory placement: project-specific lessons stay in this repo's `.betavibe/registry`; portable cross-repo lessons stay in `~/.betavibe/personal`; GBrain is optional semantic federation, not the source of truth. Store an insight where the fix lives: code -> source repo, config/cron/env -> ops repo, truly portable -> personal.
-
-Capture only hard-won, verified, reusable lessons. Do not store routine edits, guesses, generic advice, or unverified fixes.
+Do not store routine edits or unverified guesses as insights. Betavibe reviewed insights stay in `.betavibe/registry`; GBrain sync is optional, not source of truth.
 {END}
 """
 

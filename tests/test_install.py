@@ -10,7 +10,7 @@ class InstallContractTest(unittest.TestCase):
     def run_cli(self, *args):
         return subprocess.run([sys.executable, "-m", "betavibe", *args], cwd=ROOT, text=True, capture_output=True, check=True)
 
-    def test_install_agent_contract_writes_root_instruction_files(self):
+    def test_install_agent_contract_writes_slim_root_instruction_files(self):
         with tempfile.TemporaryDirectory() as td:
             project = Path(td) / "client-project"
             project.mkdir()
@@ -18,11 +18,28 @@ class InstallContractTest(unittest.TestCase):
             for rel in ["AGENTS.md", "CLAUDE.md", ".codex/AGENTS.md", ".claude/CLAUDE.md"]:
                 text = (project / rel).read_text()
                 self.assertIn("BETAVIBE_AGENT_CONTRACT_START", text)
-                self.assertIn("resolve pre_spec", text)
-                self.assertIn("should-capture", text)
-                self.assertIn("tools/betavibe", text)
-                self.assertIn("--registry ../../.betavibe/registry", text)
-                self.assertIn("--cwd ../.. --repo ../..", text)
+                self.assertIn("betavibe-insight", text)
+                self.assertIn("non-trivial coding/spec/debug work", text)
+                self.assertIn("BETAVIBE_AGENT_CONTRACT_END", text)
+
+                # Always-on root context must stay slim: detailed commands and
+                # vendored path examples belong in the installed skill only.
+                self.assertNotIn("resolve pre_spec", text)
+                self.assertNotIn("resolve pre_implement", text)
+                self.assertNotIn("should-capture", text)
+                self.assertNotIn("--registry", text)
+                self.assertNotIn("--cwd", text)
+                self.assertNotIn("tools/betavibe", text)
+
+    def test_bundled_skill_contains_detailed_workflow_and_registry_rule(self):
+        skill = (ROOT / "skills" / "betavibe-insight" / "SKILL.md").read_text()
+        self.assertIn("resolve pre_spec", skill)
+        self.assertIn("resolve pre_implement", skill)
+        self.assertIn("should-capture", skill)
+        self.assertIn("--registry", skill)
+        self.assertIn("host project registry", skill)
+        self.assertIn("fail→fix→pass", skill)
+        self.assertIn("capture --sync-gbrain", skill)
 
     def test_install_agent_contract_is_idempotent(self):
         with tempfile.TemporaryDirectory() as td:
@@ -55,6 +72,7 @@ class InstallContractTest(unittest.TestCase):
             ]:
                 self.assertTrue((project / rel).exists(), rel)
             hook = (project / ".betavibe/hooks/pre_implement.sh").read_text()
+            self.assertIn("tools/betavibe", hook)
             self.assertIn('--registry "$PROJECT_ROOT/.betavibe/registry"', hook)
             verify_hook = (project / ".betavibe/hooks/verify.sh").read_text()
             self.assertIn('verify --cwd "$PROJECT_ROOT" --repo "$PROJECT_ROOT"', verify_hook)
